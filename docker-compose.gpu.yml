@@ -1,0 +1,69 @@
+services:
+  # 1. LiveKit WebRTC Core Server
+  livekit-server:
+    image: livekit/livekit-server:v1.8.0
+    container_name: livekit-server
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml
+    network_mode: host
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml
+
+  # 2. LiveKit SIP Ingress / Egress Gateway (Telnyx VoIP)
+  livekit-sip:
+    image: livekit/sip:v1.3.0
+    container_name: livekit-sip
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - SIP_CONFIG_BODY=/etc/sip-config.yaml
+    volumes:
+      - ./livekit-sip.yaml:/etc/sip-config.yaml
+    depends_on:
+      - livekit-server
+
+  # 3. GPU-Accelerated Voice Agent Worker (Parakeet STT + Kokoro-82M TTS)
+  voice-agent-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    container_name: voice-agent-gpu
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - LIVEKIT_URL=ws://127.0.0.1:7880
+      - LIVEKIT_API_KEY=devkey
+      - LIVEKIT_API_SECRET=secret
+      - BACKEND_API_URL=${BACKEND_API_URL:-http://127.0.0.1:8080/api/v1}
+      - BACKEND_WS_URL=${BACKEND_WS_URL:-ws://127.0.0.1:8080/api/v1/ws/calls}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - EXECUTION_DEVICE=gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ./models:/app/models
+    depends_on:
+      - livekit-server
+
+  # 4. Nginx SSL Reverse Proxy Gateway (server.ibrasoft.com)
+  nginx-proxy:
+    image: nginx:alpine
+    container_name: voice-nginx-proxy
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - livekit-server
+
+volumes:
+  models:
+  ssl:

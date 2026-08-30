@@ -1,0 +1,30 @@
+services:
+  # 1. LiveKit Local Development Server
+  livekit-dev:
+    image: livekit/livekit-server:v1.8.0
+    container_name: livekit-dev
+    restart: unless-stopped
+    command: --dev --bind 0.0.0.0
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+
+  # 2. Local Voice Agent Worker (CPU Mode)
+  voice-agent-local:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    container_name: voice-agent-local
+    restart: unless-stopped
+    environment:
+      - LIVEKIT_URL=ws://livekit-dev:7880
+      - LIVEKIT_API_KEY=devkey
+      - LIVEKIT_API_SECRET=secret
+      - BACKEND_API_URL=http://chatbot-backend:8080/api/v1
+      - BACKEND_WS_URL=ws://chatbot-backend:8080/api/v1/ws/calls
+      - EXECUTION_DEVICE=cpu
+    volumes:
+      - ./models:/app/models
+    depends_on:
+      - livekit-dev
