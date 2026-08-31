@@ -1,32 +1,15 @@
 # ==============================================================================
-# LiveKit SIP Gateway Configuration (Inbound & Outbound Telnyx Trunk)
+# LiveKit SIP Gateway Configuration (Telnyx VoIP Trunk)
 # Domain: server.ibrasoft.com
 # ==============================================================================
 api_key: devkey
 api_secret: secret
 ws_url: ws://127.0.0.1:7880
 
-sip:
-  listen_ip: 0.0.0.0
-  listen_port: 5060
-  rtp_port_start: 10000
-  rtp_port_end: 20000
+redis:
+  address: 127.0.0.1:6379
 
-# 1. Inbound SIP Trunks (Receives Inbound Calls from Telnyx)
-trunks:
-  - id: telnyx-inbound-trunk
-    name: Telnyx Inbound SIP Trunk
-    # Auto-dispatch incoming SIP calls to dynamically created LiveKit rooms
-    dispatch_rules:
-      - name: default-inbound-rule
-        room_prefix: "sip-call-"
-        metadata: "inbound_carrier=telnyx"
-
-# 2. Outbound SIP Trunks (Makes Outbound Calls via Telnyx Credentials)
-outbound_trunks:
-  - id: telnyx-outbound-trunk
-    name: Telnyx Outbound SIP Trunk
-    address: sip.telnyx.com:5060
-    transport: udp
-    auth_username: aivoiceebott
-    auth_password: "ai_voicee_bott@78692"
+sip_port: 5060
+rtp_port:
+  start: 10000
+  end: 20000

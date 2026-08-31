@@ -316,26 +316,84 @@ async def entrypoint(ctx):
     except Exception as e:
         logger.error(f"[LIVEKIT ERROR] Job execution error: {e}")
 
+import threading
+from aiohttp import web
+
+tts_global_engine = KokoroTTSEngine(device=EXECUTION_DEVICE)
+
+async def handle_tts_synthesize(request):
+    try:
+        data = await request.json()
+        text = data.get("text", "Hello, I am your voice assistant.")
+        voice = data.get("voice", "af_bella")
+        speed = float(data.get("speed", 1.0))
+
+        t0 = time.time()
+        wav_bytes = await tts_global_engine.synthesize_wav(text, voice=voice, speed=speed)
+        elapsed_ms = round((time.time() - t0) * 1000, 1)
+        logger.info(f"🎙️ [KOKORO HTTP SYNTHESIS] Voice '{voice}' | \"{text[:45]}...\" | {elapsed_ms}ms | {len(wav_bytes)} bytes")
+
+        return web.Response(
+            body=wav_bytes,
+            content_type="audio/wav",
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type",
+            },
+        )
+    except Exception as e:
+        logger.error(f"[KOKORO HTTP ERROR] {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+async def handle_tts_options(request):
+    return web.Response(
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
+        }
+    )
+
+def start_http_tts_server():
+    try:
+        app = web.Application()
+        app.router.add_post("/synthesize", handle_tts_synthesize)
+        app.router.add_post("/api/v1/tts/synthesize", handle_tts_synthesize)
+        app.router.add_options("/synthesize", handle_tts_options)
+        app.router.add_options("/api/v1/tts/synthesize", handle_tts_options)
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        runner = web.AppRunner(app)
+        loop.run_until_complete(runner.setup())
+        site = web.TCPSite(runner, "0.0.0.0", 8088)
+        loop.run_until_complete(site.start())
+        logger.info("✓ Kokoro HTTP Neural TTS Server listening on http://0.0.0.0:8088/synthesize")
+        loop.run_forever()
+    except Exception as e:
+        logger.error(f"HTTP TTS server error: {e}")
+
 def main():
     logger.info("================================================================")
     logger.info("   Enterprise LiveKit Voice Agent Worker (GPU/CPU Pipeline)     ")
     logger.info(f"   Domain: server.ibrasoft.com | Device: {EXECUTION_DEVICE.upper()} ")
     logger.info(f"   Target Backend: {BACKEND_API_URL}")
     logger.info("================================================================")
-    
+
+    # Start HTTP TTS Endpoint for Web Live Audition & Simulator
+    t = threading.Thread(target=start_http_tts_server, daemon=True)
+    t.start()
+
     if len(sys.argv) == 1:
         sys.argv.append("start")
 
     try:
         from livekit.agents import WorkerOptions, cli
-        logger.info("✓ LiveKit Agents SDK loaded. Starting worker listener...")
+        logger.info("✓ LiveKit Agents SDK loaded. Connecting worker to LiveKit server...")
         cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
     except Exception as e:
-        logger.warning(f"LiveKit worker startup notice: {e}. Starting persistent standby loop...")
-        async def fallback_loop():
-            while True:
-                await asyncio.sleep(10)
-        asyncio.run(fallback_loop())
+        logger.error(f"LiveKit worker error: {e}")
 
 if __name__ == "__main__":
     try:

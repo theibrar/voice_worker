@@ -1,5 +1,5 @@
 # ==============================================================================
-# Enterprise Voice AI Worker - CUDA 12.4 Accelerated Container
+# Enterprise Voice AI Worker - GPU/CPU Multi-Threaded Audio Container
 # ==============================================================================
 FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
 
@@ -7,13 +7,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV EXECUTION_DEVICE=gpu
 
-# Install Python 3.11 and system audio libraries
+# Install Python 3.11, espeak-ng phonemizer, and system audio libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3.11-dev \
     python3-pip \
     build-essential \
     ffmpeg \
+    espeak-ng \
     libsndfile1 \
     libportaudio2 \
     libportaudiocpp0 \
@@ -41,8 +42,8 @@ RUN python -m pip install --no-cache-dir \
 COPY requirements.txt .
 RUN python -m pip install --no-cache-dir -r requirements.txt
 
-# Install ONNX Runtime GPU
-RUN python -m pip install --no-cache-dir onnxruntime-gpu
+# Install ONNX Runtime with Multi-Threading
+RUN python -m pip install --no-cache-dir onnxruntime==1.20.1
 
 # Copy application files
 COPY . .
