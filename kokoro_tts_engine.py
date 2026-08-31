@@ -127,9 +127,11 @@ class KokoroTTSEngine:
                         except Exception:
                             pass
 
-                    session = ort.InferenceSession(self.model_path, sess_options=sess_options, providers=providers)
-                    self._kokoro = kokoro_onnx.Kokoro(self.model_path, self.voices_path, session=session)
-                    logger.info(f"✓ Kokoro ONNX model loaded with provider: {session.get_providers()[0]}")
+                    try:
+                        self._kokoro = kokoro_onnx.Kokoro(self.model_path, self.voices_path)
+                    except Exception:
+                        self._kokoro = kokoro_onnx.Kokoro(self.model_path, self.voices_path, session=session)
+                    logger.info("✓ Kokoro ONNX model loaded successfully!")
                 else:
                     logger.warning(f"Kokoro model files not found at {self.model_path}. Using fallback neural synthesizer.")
             except ImportError:
