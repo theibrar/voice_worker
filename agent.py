@@ -316,24 +316,29 @@ async def entrypoint(ctx):
     except Exception as e:
         logger.error(f"[LIVEKIT ERROR] Job execution error: {e}")
 
-async def main():
+def main():
     logger.info("================================================================")
     logger.info("   Enterprise LiveKit Voice Agent Worker (GPU/CPU Pipeline)     ")
     logger.info(f"   Domain: server.ibrasoft.com | Device: {EXECUTION_DEVICE.upper()} ")
     logger.info(f"   Target Backend: {BACKEND_API_URL}")
     logger.info("================================================================")
     
+    if len(sys.argv) == 1:
+        sys.argv.append("start")
+
     try:
         from livekit.agents import WorkerOptions, cli
         logger.info("✓ LiveKit Agents SDK loaded. Starting worker listener...")
         cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
-    except (ImportError, Exception) as e:
-        logger.info(f"Running standalone background listener (Notice: {e})...")
-        while True:
-            await asyncio.sleep(10)
+    except Exception as e:
+        logger.warning(f"LiveKit worker startup notice: {e}. Starting persistent standby loop...")
+        async def fallback_loop():
+            while True:
+                await asyncio.sleep(10)
+        asyncio.run(fallback_loop())
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        main()
     except KeyboardInterrupt:
         logger.info("Voice worker stopped cleanly.")

@@ -48,4 +48,4 @@ RUN python -m pip install --no-cache-dir onnxruntime-gpu
 COPY . .
 
 # Run agent worker
-CMD ["python", "agent.py"]
+CMD ["python", "agent.py", "start"]

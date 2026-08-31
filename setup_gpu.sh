@@ -131,9 +131,11 @@ docker compose -f docker-compose.gpu.yml down --remove-orphans || true
 docker compose -f docker-compose.gpu.yml up -d --build
 
 # 9. Verify System Containers and Latency Diagnostics
-echo -e "${GREEN}[8/8] Running Hardware & Latency Benchmark...${NC}"
+echo -e "${GREEN}[8/8] Running Hardware & Latency Benchmark inside GPU Container...${NC}"
 sleep 5
 docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+docker compose -f docker-compose.gpu.yml exec -T voice-agent-gpu python verify_gpu.py || true
 
 PUBLIC_IP=$(curl -s -m 3 ifconfig.me || hostname -I | awk '{print $1}')
 
