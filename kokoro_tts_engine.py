@@ -272,6 +272,8 @@ class KokoroTTSEngine:
         Instant sub-80ms micro-acknowledgment audio generation for active listening backchanneling.
         """
         async for chunk in self.synthesize_stream(phrase, voice=voice, speed=1.1, enable_breaths=False, sample_rate=sample_rate):
+            yield chunk
+
     async def synthesize_wav(self, text: str, voice: str = "af_bella", speed: float = 1.0) -> bytes:
         """
         Synthesizes text into complete RIFF WAV audio binary for HTTP preview and live audition.
