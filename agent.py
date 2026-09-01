@@ -185,8 +185,26 @@ class VoiceAIAgentSession:
         return agent_reply
 
     async def _generate_llm_response(self, messages: list) -> str:
-        """Calls OpenAI, DeepSeek, Google Gemini, or fallback LLM router."""
-        # 1. OpenAI (GPT-4o-mini)
+        """Calls DeepSeek, OpenAI, Google Gemini, or fallback LLM router according to agent configuration."""
+        model_pref = getattr(self, "llm_model", "deepseek").lower()
+
+        # 1. DeepSeek (deepseek-chat / DeepSeek-V3)
+        if DEEPSEEK_API_KEY and (not model_pref or "deepseek" in model_pref or "r1" in model_pref or not OPENAI_API_KEY):
+            try:
+                headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
+                payload = {
+                    "model": "deepseek-chat",
+                    "messages": messages,
+                    "max_tokens": 120,
+                    "temperature": 0.7,
+                }
+                status, data = await async_post_json("https://api.deepseek.com/v1/chat/completions", payload, headers=headers, timeout=4.0)
+                if status == 200 and isinstance(data, dict):
+                    return data["choices"][0]["message"]["content"].strip()
+            except Exception as e:
+                logger.warning(f"DeepSeek error: {e}")
+
+        # 2. OpenAI (GPT-4o-mini / GPT-4o)
         if OPENAI_API_KEY:
             try:
                 headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
@@ -202,23 +220,7 @@ class VoiceAIAgentSession:
             except Exception as e:
                 logger.warning(f"OpenAI error: {e}")
 
-        # 2. DeepSeek (deepseek-chat)
-        if DEEPSEEK_API_KEY:
-            try:
-                headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
-                payload = {
-                    "model": "deepseek-chat",
-                    "messages": messages,
-                    "max_tokens": 120,
-                    "temperature": 0.7,
-                }
-                status, data = await async_post_json("https://api.deepseek.com/chat/completions", payload, headers=headers, timeout=4.0)
-                if status == 200 and isinstance(data, dict):
-                    return data["choices"][0]["message"]["content"].strip()
-            except Exception as e:
-                logger.warning(f"DeepSeek error: {e}")
-
-        # 3. Google Gemini (gemini-2.0-flash)
+        # 3. Google Gemini (gemini-2.0-flash / 1.5-flash)
         if GEMINI_API_KEY:
             try:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
