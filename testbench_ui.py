@@ -162,9 +162,12 @@ def test_barge_in_simulation():
 
 def check_vllm_status():
     try:
-        r = requests.get("http://127.0.0.1:8000/v1/models", timeout=2)
+        headers = {"Authorization": f"Bearer {API_KEY}"}
+        r = requests.get(f"{VLLM_URL}/models", headers=headers, timeout=2)
         if r.ok:
-            return "🟢 **vLLM Engine:** Online & Ready in VRAM (Qwen2.5-7B)"
+            data = r.json().get("data", [])
+            m_name = data[0].get("id", "Qwen2.5-7B") if data else "Qwen2.5-7B"
+            return f"🟢 **vLLM Engine:** Online & Ready in VRAM ({m_name})"
     except Exception:
         pass
     return "🟡 **vLLM Engine:** Loading weights or downloading from HuggingFace (~15GB). Models will become active once download completes!"
