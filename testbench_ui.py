@@ -119,7 +119,7 @@ def run_voice_pipeline(audio_input, text_input, voice_choice, emotion_tag, user_
                                     first_clause_tokens.append(delta_content)
                                     # If clause boundary or 5+ words reached, trigger early TTS
                                     accumulated_text = "".join(first_clause_tokens)
-                                    if any(p in accumulated_text for p in [".", ",", "!", "?", "\n"]) or len(accumulated_text.split()) >= 4:
+                                    if any(p in accumulated_text for p in [".", ",", "!", "?", "\n"]) or len(accumulated_text.split()) >= 2:
                                         first_clause_sent = True
                                         t_tts_start = time.time()
                                         try:

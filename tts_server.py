@@ -248,17 +248,21 @@ async def stream_speech(req: SynthesizeRequest, request: Request):
     clean_text, effective_speed, _ = parse_emotion_and_prosody(req.text, req.speed or 1.0)
     voice_name = req.voice or "af_bella"
 
+    t_req = time.time()
     async def audio_generator() -> AsyncGenerator[bytes, None]:
         # Split into short clauses/phrases by commas & punctuation for sub-60ms first-chunk delivery
         clauses = [c.strip() for c in re.split(r"(?<=[,.!?;])\s+", clean_text) if c.strip()]
         if not clauses:
             clauses = [clean_text]
 
-        for clause in clauses:
+        for i, clause in enumerate(clauses):
             if not clause:
                 continue
+            t_c0 = time.time()
             samples, sr = generate_kokoro_audio_cached(clause, voice_name, effective_speed, req.lang or "en-us")
-            # Convert float32 samples to 16-bit PCM
+            t_syn = round((time.time() - t_c0) * 1000, 1)
+            if i == 0:
+                logger.info(f"⚡ [TTS FIRST CHUNK] text='{clause[:30]}' | syn={t_syn}ms | total={(time.time() - t_req)*1000:.1f}ms")
             pcm16 = (samples * 32767).astype(np.int16).tobytes()
             yield pcm16
             await asyncio.sleep(0.005)
