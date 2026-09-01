@@ -72,8 +72,19 @@ def run_voice_pipeline(audio_input, text_input, voice_choice, emotion_tag, user_
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
         prompt_with_emotion = f"{user_system_prompt}\nKeep answer concise (under 25 words). Prefix your answer with [{emotion_tag}] for emotional prosody."
         
+        # Dynamically detect active vLLM model ID
+        active_model = "Qwen/Qwen2.5-7B-Instruct-AWQ"
+        try:
+            m_res = requests.get(f"{VLLM_URL}/models", headers=headers, timeout=2)
+            if m_res.ok:
+                models_data = m_res.json().get("data", [])
+                if models_data:
+                    active_model = models_data[0].get("id", active_model)
+        except Exception:
+            pass
+
         payload = {
-            "model": "Qwen/Qwen2.5-7B-Instruct",
+            "model": active_model,
             "messages": [
                 {"role": "system", "content": prompt_with_emotion},
                 {"role": "user", "content": user_text}
@@ -87,11 +98,12 @@ def run_voice_pipeline(audio_input, text_input, voice_choice, emotion_tag, user_
             llm_reply = data["choices"][0]["message"]["content"].strip()
             llm_time = round((time.time() - t0) * 1000, 1)
         else:
-            # Local fallback if vLLM still spinning up
-            llm_reply = f"[{emotion_tag}] I hear you clearly. We are ready to assist you right now."
+            # Fallback only if HTTP call fails
+            err_msg = res.text[:80]
+            llm_reply = f"[{emotion_tag}] I hear you clearly. (LLM Notice: {err_msg})"
             llm_time = 15.0
-    except Exception:
-        llm_reply = f"[{emotion_tag}] Thank you for asking. Our voice agent pipeline is responding live on GPU."
+    except Exception as e:
+        llm_reply = f"[{emotion_tag}] I hear you. (Notice: {e})"
         llm_time = 12.0
 
     # 3. Neural TTS via Kokoro-82M

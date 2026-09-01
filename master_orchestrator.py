@@ -46,6 +46,7 @@ def start_services():
     env["VLLM_USE_FLASHINFER_SAMPLER"] = "0"
     env["CUDA_HOME"] = "/usr/local/lib/python3.10/dist-packages/nvidia/cuda_nvcc"
     env["PATH"] = f"/usr/local/lib/python3.10/dist-packages/nvidia/cuda_nvcc/bin:{env.get('PATH', '')}"
+    env["LD_LIBRARY_PATH"] = f"/usr/local/lib/python3.10/dist-packages/nvidia/cublas/lib:/usr/local/lib/python3.10/dist-packages/nvidia/cudnn/lib:{env.get('LD_LIBRARY_PATH', '')}"
 
     # 1. Start Kokoro-82M TTS Server (Port 8088)
     logger.info("► [1/5] Launching Kokoro-82M Neural TTS Engine (Port 8088)...")

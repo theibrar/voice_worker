@@ -32,6 +32,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Ensure NVIDIA cuBLAS libraries are in path for CTranslate2
+for p in [
+    "/usr/local/lib/python3.10/dist-packages/nvidia/cublas/lib",
+    "/usr/local/lib/python3.10/dist-packages/nvidia/cudnn/lib"
+]:
+    if os.path.exists(p):
+        os.environ["LD_LIBRARY_PATH"] = f"{p}:{os.environ.get('LD_LIBRARY_PATH', '')}"
+
 whisper_model = None
 
 def get_stt_model():
@@ -40,11 +48,16 @@ def get_stt_model():
         try:
             from faster_whisper import WhisperModel
             import torch
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            compute_type = "float16" if device == "cuda" else "int8"
-            logger.info(f"Loading Faster-Whisper ({MODEL_SIZE}) on {device} ({compute_type})...")
-            whisper_model = WhisperModel(MODEL_SIZE, device=device, compute_type=compute_type)
-            logger.success("✓ Streaming STT Engine initialized.")
+            try:
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                compute_type = "float16" if device == "cuda" else "int8"
+                logger.info(f"Loading Faster-Whisper ({MODEL_SIZE}) on {device} ({compute_type})...")
+                whisper_model = WhisperModel(MODEL_SIZE, device=device, compute_type=compute_type)
+                logger.success("✓ Streaming STT Engine initialized on CUDA.")
+            except Exception as cuda_err:
+                logger.warning(f"CUDA STT init notice: {cuda_err}. Falling back to high-speed CPU mode...")
+                whisper_model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
+                logger.success("✓ Streaming STT Engine initialized on CPU.")
         except Exception as e:
             logger.error(f"Failed to load Whisper STT: {e}")
     return whisper_model
