@@ -78,10 +78,10 @@ async def configure_sip():
             rule_cls = getattr(api, "SIPDispatchRule", None)
             indiv_cls = getattr(api, "SIPDispatchRuleIndividual", None)
 
-            if req_cls and info_cls and rule_cls and indiv_cls:
-                new_r = await create_rule_fn(
-                    req_cls(
-                        rule=info_cls(
+            if req_cls and rule_cls and indiv_cls:
+                try:
+                    new_r = await create_rule_fn(
+                        req_cls(
                             name="Telnyx Inbound Dispatcher",
                             rule=rule_cls(
                                 dispatch_rule_individual=indiv_cls(
@@ -91,9 +91,19 @@ async def configure_sip():
                             trunk_ids=[trunk_id] if trunk_id else [],
                         )
                     )
-                )
-                rule_id = getattr(new_r, "sip_dispatch_rule_id", "SDR_TELNYX_DISPATCH")
-                print(f"✓ Created SIP Dispatch Rule: {rule_id}")
+                    rule_id = getattr(new_r, "sip_dispatch_rule_id", "SDR_TELNYX_DISPATCH")
+                    print(f"✓ Created SIP Dispatch Rule: {rule_id}")
+                except Exception as ex:
+                    # Alternative payload structure
+                    new_r = await create_rule_fn(
+                        rule_cls(
+                            dispatch_rule_individual=indiv_cls(
+                                room_prefix="call-",
+                            )
+                        )
+                    )
+                    rule_id = getattr(new_r, "sip_dispatch_rule_id", "SDR_TELNYX_DISPATCH")
+                    print(f"✓ Created SIP Dispatch Rule: {rule_id}")
 
         print("\n" + "=" * 65)
         print(" 🎉 LiveKit SIP Inbound Trunk & Dispatch Rules are ACTIVE!")
