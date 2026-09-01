@@ -16,8 +16,8 @@ import subprocess
 from loguru import logger
 
 API_KEY = os.getenv("GPU_API_KEY", "sk-ibrasoft-gpu-voice")
-LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct")
-GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.85")
+LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct-AWQ")
+GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.70")
 
 processes = []
 
@@ -43,6 +43,9 @@ def start_services():
     env = os.environ.copy()
     env["GPU_API_KEY"] = API_KEY
     env["VLLM_USE_V1"] = "0"
+    env["VLLM_USE_FLASHINFER_SAMPLER"] = "0"
+    env["CUDA_HOME"] = "/usr/local/lib/python3.10/dist-packages/nvidia/cuda_nvcc"
+    env["PATH"] = f"/usr/local/lib/python3.10/dist-packages/nvidia/cuda_nvcc/bin:{env.get('PATH', '')}"
 
     # 1. Start Kokoro-82M TTS Server (Port 8088)
     logger.info("► [1/5] Launching Kokoro-82M Neural TTS Engine (Port 8088)...")
@@ -77,7 +80,8 @@ def start_services():
         "--host", "0.0.0.0",
         "--api-key", API_KEY,
         "--gpu-memory-utilization", GPU_MEM_UTIL,
-        "--max-model-len", "2048",
+        "--max-model-len", "4096",
+        "--quantization", "awq",
         "--enforce-eager",
         "--trust-remote-code"
     ]
