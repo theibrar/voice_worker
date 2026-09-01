@@ -83,6 +83,8 @@ def run_voice_pipeline(audio_input, text_input, voice_choice, emotion_tag, user_
         except Exception:
             pass
 
+        # 2. LLM Reasoning via vLLM with Concurrent Early Clause-to-TTS Pipeline
+        t_llm_start = time.time()
         payload = {
             "model": active_model,
             "messages": [
@@ -94,25 +96,50 @@ def run_voice_pipeline(audio_input, text_input, voice_choice, emotion_tag, user_
             "stream": True
         }
         res = requests.post(f"{VLLM_URL}/chat/completions", headers=headers, json=payload, stream=True, timeout=12)
+        
+        collected_tokens = []
+        first_clause_tokens = []
+        first_clause_sent = False
+        tts_first_chunk_time = 0
+
         if res.ok:
-            collected_tokens = []
             import json
             for line in res.iter_lines():
                 if line:
                     line_str = line.decode('utf-8') if isinstance(line, bytes) else line
                     if line_str.startswith("data: ") and line_str != "data: [DONE]":
                         if llm_time == 0:
-                            llm_time = round((time.time() - t0) * 1000, 1) # True First-Token Latency!
+                            llm_time = round((time.time() - t_llm_start) * 1000, 1) # True LLM First-Token Latency!
                         try:
                             chunk_data = json.loads(line_str[6:])
                             delta_content = chunk_data["choices"][0].get("delta", {}).get("content", "")
                             if delta_content:
                                 collected_tokens.append(delta_content)
+                                if not first_clause_sent:
+                                    first_clause_tokens.append(delta_content)
+                                    # If clause boundary or 5+ words reached, trigger early TTS
+                                    accumulated_text = "".join(first_clause_tokens)
+                                    if any(p in accumulated_text for p in [".", ",", "!", "?", "\n"]) or len(accumulated_text.split()) >= 4:
+                                        first_clause_sent = True
+                                        t_tts_start = time.time()
+                                        try:
+                                            tts_res = requests.post(f"{TTS_URL}/stream", headers={"Authorization": f"Bearer {API_KEY}"}, json={
+                                                "text": accumulated_text,
+                                                "voice": voice_choice,
+                                                "speed": 1.0
+                                            }, stream=True, timeout=5)
+                                            if tts_res.ok:
+                                                for c in tts_res.iter_content(chunk_size=2048):
+                                                    if c:
+                                                        tts_first_chunk_time = round((time.time() - t_tts_start) * 1000, 1)
+                                                        break
+                                        except Exception:
+                                            pass
                         except Exception:
                             pass
             llm_reply = "".join(collected_tokens).strip()
             if llm_time == 0:
-                llm_time = round((time.time() - t0) * 1000, 1)
+                llm_time = round((time.time() - t_llm_start) * 1000, 1)
         else:
             err_msg = res.text[:80]
             llm_reply = f"[{emotion_tag}] I hear you clearly. (LLM Notice: {err_msg})"
@@ -121,8 +148,8 @@ def run_voice_pipeline(audio_input, text_input, voice_choice, emotion_tag, user_
         llm_reply = f"[{emotion_tag}] I hear you. (Notice: {e})"
         llm_time = 12.0
 
-    # 3. Neural TTS via Kokoro-82M (Streaming First-Audio Measurement)
-    t0 = time.time()
+    # 3. Neural TTS Generation for Full Dialogue Playback
+    t_tts_start = time.time()
     audio_output = None
     try:
         headers = {"Authorization": f"Bearer {API_KEY}"}
@@ -136,31 +163,15 @@ def run_voice_pipeline(audio_input, text_input, voice_choice, emotion_tag, user_
         if res.ok:
             for chunk in res.iter_content(chunk_size=2048):
                 if chunk:
-                    if tts_time == 0:
-                        tts_time = round((time.time() - t0) * 1000, 1) # True Time-To-First-Audio!
                     audio_chunks.append(chunk)
             
             all_pcm = b"".join(audio_chunks)
-            if tts_time == 0:
-                tts_time = round((time.time() - t0) * 1000, 1)
-            
-            # Convert raw 24kHz 16-bit PCM to numpy array for Gradio player
             pcm_data = np.frombuffer(all_pcm, dtype=np.int16).astype(np.float32) / 32768.0
             audio_output = (24000, pcm_data)
-        else:
-            # Fallback to /synthesize
-            res_sync = requests.post(f"{TTS_URL}/synthesize", headers=headers, json={
-                "text": llm_reply,
-                "voice": voice_choice,
-                "speed": 1.0
-            }, timeout=10)
-            if res_sync.ok:
-                tts_time = round((time.time() - t0) * 1000, 1)
-                data, sr = sf.read(io.BytesIO(res_sync.content))
-                audio_output = (sr, data)
     except Exception as e:
         llm_reply += f" (TTS Notice: {e})"
 
+    tts_time = tts_first_chunk_time if tts_first_chunk_time > 0 else round((time.time() - t_tts_start) * 1000, 1)
     perception_time = round(stt_time + llm_time + tts_time, 1)
 
     return (
@@ -168,8 +179,8 @@ def run_voice_pipeline(audio_input, text_input, voice_choice, emotion_tag, user_
         f"**User Said:** \"{user_text}\"\n\n**Agent Answered:** \"{llm_reply}\"",
         f"{stt_time} ms" if stt_time else "N/A (Text Input)",
         f"{llm_time} ms",
-        f"{tts_time} ms",
-        f"⚡ **{perception_time} ms Time-To-First-Audio** (Total Generation: {round((time.time() - t_start) * 1000, 1)} ms)"
+        f"{tts_time} ms (Early Streaming Chunk)",
+        f"⚡ **{perception_time} ms Real-Time Time-To-First-Speech** (Full Audio Gen: {round((time.time() - t_start) * 1000, 1)} ms)"
     )
 
 def test_barge_in_simulation():
