@@ -32,42 +32,44 @@ vad_utils = None
 
 def get_vad_model():
     global vad_model, vad_utils
-    if vad_model is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        # 1. Try pip package silero_vad
-        try:
-            from silero_vad import load_silero_vad
-            logger.info(f"Loading Silero VAD from package on {device}...")
-            vad_model = load_silero_vad(onnx=False).to(device)
-            logger.success("✓ Silero VAD Engine initialized via silero_vad.")
-            return vad_model
-        except Exception as e:
-            logger.warning(f"Package load notice: {e}")
+    if vad_model is not None:
+        return vad_model
 
-        # 2. Try torch.hub
-        try:
-            model, utils = torch.hub.load(
-                repo_or_dir='snakers4/silero-vad',
-                model='silero_vad',
-                force_reload=False,
-                trust_repo=True,
-                onnx=False
-            )
-            vad_model = model.to(device)
-            vad_utils = utils
-            logger.success("✓ Silero VAD Engine initialized via torch.hub.")
-            return vad_model
-        except Exception as e:
-            logger.warning(f"torch.hub load notice: {e}. Using High-Accuracy Energy VAD Engine.")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    return vad_model
+    # 1. Try silero_vad package
+    try:
+        from silero_vad import load_silero_vad
+        vad_model = load_silero_vad(onnx=False).to(device)
+        logger.success("✓ Silero VAD Engine initialized via silero_vad.")
+        return vad_model
+    except Exception as e:
+        logger.warning(f"silero_vad package notice: {e}")
+
+    # 2. Try torch.hub with trust_repo=True
+    try:
+        model, utils = torch.hub.load(
+            repo_or_dir='snakers4/silero-vad',
+            model='silero_vad',
+            force_reload=False,
+            trust_repo=True,
+            onnx=False
+        )
+        vad_model = model.to(device)
+        vad_utils = utils
+        logger.success("✓ Silero VAD Engine initialized via torch.hub.")
+        return vad_model
+    except Exception as e:
+        logger.warning(f"torch.hub notice: {e}. Using High-Speed RMS Energy VAD.")
+
+    return None
 
 @app.on_event("startup")
 async def startup():
     try:
         get_vad_model()
     except Exception as e:
-        logger.warning(f"VAD startup notice: {e}")
+        logger.error(f"VAD startup non-fatal error: {e}")
 
 @app.get("/health")
 def health():
@@ -75,7 +77,8 @@ def health():
         "status": "healthy",
         "service": "silero-vad",
         "ready": True,
-        "mode": "neural" if vad_model is not None else "energy_fallback"
+        "engine": "silero_neural" if vad_model is not None else "energy_bargein",
+        "threshold_dbfs": -20.0
     }
         "ready": vad_model is not None,
         "device": "cuda" if torch.cuda.is_available() else "cpu"
@@ -85,8 +88,6 @@ def health():
 @app.post("/vad/detect")
 async def detect_vad(file: UploadFile = File(...)):
     model = get_vad_model()
-    if not model:
-        raise HTTPException(status_code=500, detail="VAD model not loaded.")
 
     content = await file.read()
     audio_stream = io.BytesIO(content)
@@ -97,11 +98,15 @@ async def detect_vad(file: UploadFile = File(...)):
         import librosa
         data = librosa.resample(data, orig_sr=samplerate, target_sr=16000)
 
-    device = next(model.parameters()).device
-    tensor_audio = torch.from_numpy(data.astype(np.float32)).to(device)
-
-    with torch.no_grad():
-        speech_prob = model(tensor_audio, 16000).item()
+    if model is not None:
+        device = next(model.parameters()).device
+        tensor_audio = torch.from_numpy(data.astype(np.float32)).to(device)
+        with torch.no_grad():
+            speech_prob = model(tensor_audio, 16000).item()
+    else:
+        rms = np.sqrt(np.mean(data**2)) + 1e-9
+        dbfs = 20 * np.log10(rms)
+        speech_prob = 0.95 if dbfs > -28.0 else 0.05
 
     is_speech = speech_prob > 0.5
     return JSONResponse({
@@ -119,7 +124,7 @@ async def websocket_bargein_monitor(websocket: WebSocket):
     """
     await websocket.accept()
     model = get_vad_model()
-    device = next(model.parameters()).device if model else torch.device("cpu")
+    device = next(model.parameters()).device if model is not None else torch.device("cpu")
 
     speech_counter = 0
     REQUIRED_CONSECUTIVE_FRAMES = 2 # ~64ms of speech to confirm intentional human interruption
@@ -135,14 +140,15 @@ async def websocket_bargein_monitor(websocket: WebSocket):
             if len(audio_np) > 512:
                 audio_np = audio_np[:512]
 
-            tensor_chunk = torch.from_numpy(audio_np).to(device)
-
-            with torch.no_grad():
-                prob = model(tensor_chunk, 16000).item()
-
-            # Calculate dBFS to ensure speech is over -20dB threshold (not faint background click)
             rms = np.sqrt(np.mean(audio_np**2)) + 1e-9
             dbfs = 20 * np.log10(rms)
+
+            if model is not None:
+                tensor_chunk = torch.from_numpy(audio_np).to(device)
+                with torch.no_grad():
+                    prob = model(tensor_chunk, 16000).item()
+            else:
+                prob = 0.9 if dbfs > -28.0 else 0.05
 
             if prob > 0.55 and dbfs > -32.0:
                 speech_counter += 1

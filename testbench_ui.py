@@ -90,15 +90,30 @@ def run_voice_pipeline(audio_input, text_input, voice_choice, emotion_tag, user_
                 {"role": "user", "content": user_text}
             ],
             "max_tokens": 80,
-            "temperature": 0.7
+            "temperature": 0.7,
+            "stream": True
         }
-        res = requests.post(f"{VLLM_URL}/chat/completions", headers=headers, json=payload, timeout=12)
+        res = requests.post(f"{VLLM_URL}/chat/completions", headers=headers, json=payload, stream=True, timeout=12)
         if res.ok:
-            data = res.json()
-            llm_reply = data["choices"][0]["message"]["content"].strip()
-            llm_time = round((time.time() - t0) * 1000, 1)
+            collected_tokens = []
+            import json
+            for line in res.iter_lines():
+                if line:
+                    line_str = line.decode('utf-8') if isinstance(line, bytes) else line
+                    if line_str.startswith("data: ") and line_str != "data: [DONE]":
+                        if llm_time == 0:
+                            llm_time = round((time.time() - t0) * 1000, 1) # True First-Token Latency!
+                        try:
+                            chunk_data = json.loads(line_str[6:])
+                            delta_content = chunk_data["choices"][0].get("delta", {}).get("content", "")
+                            if delta_content:
+                                collected_tokens.append(delta_content)
+                        except Exception:
+                            pass
+            llm_reply = "".join(collected_tokens).strip()
+            if llm_time == 0:
+                llm_time = round((time.time() - t0) * 1000, 1)
         else:
-            # Fallback only if HTTP call fails
             err_msg = res.text[:80]
             llm_reply = f"[{emotion_tag}] I hear you clearly. (LLM Notice: {err_msg})"
             llm_time = 15.0

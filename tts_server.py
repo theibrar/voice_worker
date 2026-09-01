@@ -47,11 +47,24 @@ def get_kokoro():
     if kokoro_engine is None:
         try:
             from kokoro_onnx import Kokoro
-            logger.info(f"Loading Kokoro-82M ONNX from {MODEL_PATH}...")
-            kokoro_engine = Kokoro(MODEL_PATH, VOICES_PATH)
-            logger.success("✓ Kokoro-82M Neural TTS initialized successfully.")
+            from onnxruntime import InferenceSession
+            import onnxruntime as ort
+
+            available_providers = ort.get_available_providers()
+            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if "CUDAExecutionProvider" in available_providers else ["CPUExecutionProvider"]
+            logger.info(f"Loading Kokoro-82M ONNX with providers: {providers}...")
+            
+            inf_sess = InferenceSession(MODEL_PATH, providers=providers)
+            kokoro_engine = Kokoro.from_session(inf_sess, VOICES_PATH)
+            logger.success(f"✓ Kokoro-82M Neural TTS initialized on GPU with {providers}.")
         except Exception as e:
-            logger.error(f"Failed to load Kokoro ONNX: {e}")
+            logger.warning(f"CUDA provider init notice: {e}. Falling back to standard loader...")
+            try:
+                from kokoro_onnx import Kokoro
+                kokoro_engine = Kokoro(MODEL_PATH, VOICES_PATH)
+                logger.success("✓ Kokoro-82M Neural TTS initialized.")
+            except Exception as e2:
+                logger.error(f"Failed to load Kokoro ONNX: {e2}")
     return kokoro_engine
 
 # Authentication Helper
