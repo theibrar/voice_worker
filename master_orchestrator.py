@@ -43,10 +43,15 @@ def start_services():
     env = os.environ.copy()
     env["GPU_API_KEY"] = API_KEY
     env["VLLM_USE_V1"] = "0"
-    env["VLLM_USE_FLASHINFER_SAMPLER"] = "0"
-    env["CUDA_HOME"] = "/usr/local/lib/python3.10/dist-packages/nvidia/cuda_nvcc"
-    env["PATH"] = f"/usr/local/lib/python3.10/dist-packages/nvidia/cuda_nvcc/bin:{env.get('PATH', '')}"
-    env["LD_LIBRARY_PATH"] = f"/usr/local/lib/python3.10/dist-packages/nvidia/cublas/lib:/usr/local/lib/python3.10/dist-packages/nvidia/cudnn/lib:{env.get('LD_LIBRARY_PATH', '')}"
+    cublas_lib = "/usr/local/lib/python3.10/dist-packages/nvidia/cublas/lib"
+    cudnn_lib = "/usr/local/lib/python3.10/dist-packages/nvidia/cudnn/lib"
+    curun_lib = "/usr/local/lib/python3.10/dist-packages/nvidia/cuda_runtime/lib"
+    nvrtc_lib = "/usr/local/lib/python3.10/dist-packages/nvidia/cuda_nvrtc/lib"
+    sys_cuda = "/usr/local/cuda/lib64"
+
+    full_ld_path = f"{cublas_lib}:{cudnn_lib}:{curun_lib}:{nvrtc_lib}:{sys_cuda}:{os.environ.get('LD_LIBRARY_PATH', '')}"
+    os.environ["LD_LIBRARY_PATH"] = full_ld_path
+    env["LD_LIBRARY_PATH"] = full_ld_path
 
     # 1. Start Kokoro-82M TTS Server (Port 8088)
     logger.info("► [1/5] Launching Kokoro-82M Neural TTS Engine (Port 8088)...")

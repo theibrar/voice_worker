@@ -121,26 +121,47 @@ def run_voice_pipeline(audio_input, text_input, voice_choice, emotion_tag, user_
         llm_reply = f"[{emotion_tag}] I hear you. (Notice: {e})"
         llm_time = 12.0
 
-    # 3. Neural TTS via Kokoro-82M
+    # 3. Neural TTS via Kokoro-82M (Streaming First-Audio Measurement)
     t0 = time.time()
     audio_output = None
     try:
         headers = {"Authorization": f"Bearer {API_KEY}"}
-        res = requests.post(f"{TTS_URL}/synthesize", headers=headers, json={
+        res = requests.post(f"{TTS_URL}/stream", headers=headers, json={
             "text": llm_reply,
             "voice": voice_choice,
             "speed": 1.0
-        }, timeout=10)
+        }, stream=True, timeout=10)
+        
+        audio_chunks = []
         if res.ok:
-            wav_bytes = res.content
-            tts_time = round((time.time() - t0) * 1000, 1)
-            # Read back as numpy for Gradio
-            data, sr = sf.read(io.BytesIO(wav_bytes))
-            audio_output = (sr, data)
+            for chunk in res.iter_content(chunk_size=2048):
+                if chunk:
+                    if tts_time == 0:
+                        tts_time = round((time.time() - t0) * 1000, 1) # True Time-To-First-Audio!
+                    audio_chunks.append(chunk)
+            
+            all_pcm = b"".join(audio_chunks)
+            if tts_time == 0:
+                tts_time = round((time.time() - t0) * 1000, 1)
+            
+            # Convert raw 24kHz 16-bit PCM to numpy array for Gradio player
+            pcm_data = np.frombuffer(all_pcm, dtype=np.int16).astype(np.float32) / 32768.0
+            audio_output = (24000, pcm_data)
+        else:
+            # Fallback to /synthesize
+            res_sync = requests.post(f"{TTS_URL}/synthesize", headers=headers, json={
+                "text": llm_reply,
+                "voice": voice_choice,
+                "speed": 1.0
+            }, timeout=10)
+            if res_sync.ok:
+                tts_time = round((time.time() - t0) * 1000, 1)
+                data, sr = sf.read(io.BytesIO(res_sync.content))
+                audio_output = (sr, data)
     except Exception as e:
         llm_reply += f" (TTS Notice: {e})"
 
-    total_time = round((time.time() - t_start) * 1000, 1)
+    perception_time = round(stt_time + llm_time + tts_time, 1)
 
     return (
         audio_output,
@@ -148,7 +169,7 @@ def run_voice_pipeline(audio_input, text_input, voice_choice, emotion_tag, user_
         f"{stt_time} ms" if stt_time else "N/A (Text Input)",
         f"{llm_time} ms",
         f"{tts_time} ms",
-        f"⚡ **{total_time} ms Total Roundtrip**"
+        f"⚡ **{perception_time} ms Time-To-First-Audio** (Total Generation: {round((time.time() - t_start) * 1000, 1)} ms)"
     )
 
 def test_barge_in_simulation():

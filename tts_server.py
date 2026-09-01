@@ -7,6 +7,27 @@ Kokoro-82M Streaming Neural TTS Server (Port 8088)
 """
 
 import os
+import sys
+import ctypes
+
+# Preload NVIDIA CUDA / cuBLAS libraries into process before ONNX init
+nvidia_dirs = [
+    "/usr/local/lib/python3.10/dist-packages/nvidia/cublas/lib",
+    "/usr/local/lib/python3.10/dist-packages/nvidia/cudnn/lib",
+    "/usr/local/lib/python3.10/dist-packages/nvidia/cuda_runtime/lib"
+]
+for d in nvidia_dirs:
+    if os.path.exists(d):
+        if d not in os.environ.get("LD_LIBRARY_PATH", ""):
+            os.environ["LD_LIBRARY_PATH"] = f"{d}:{os.environ.get('LD_LIBRARY_PATH', '')}"
+        for lib_name in ["libcublasLt.so.12", "libcublas.so.12", "libcudnn.so.9"]:
+            lib_path = os.path.join(d, lib_name)
+            if os.path.exists(lib_path):
+                try:
+                    ctypes.CDLL(lib_path, mode=ctypes.RTLD_GLOBAL)
+                except Exception:
+                    pass
+
 import io
 import re
 import time

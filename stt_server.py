@@ -32,6 +32,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+import ctypes
+
 # Ensure NVIDIA cuBLAS libraries are in path for CTranslate2
 for p in [
     "/usr/local/lib/python3.10/dist-packages/nvidia/cublas/lib",
@@ -39,6 +41,13 @@ for p in [
 ]:
     if os.path.exists(p):
         os.environ["LD_LIBRARY_PATH"] = f"{p}:{os.environ.get('LD_LIBRARY_PATH', '')}"
+        for lib_name in ["libcublasLt.so.12", "libcublas.so.12"]:
+            lib_path = os.path.join(p, lib_name)
+            if os.path.exists(lib_path):
+                try:
+                    ctypes.CDLL(lib_path, mode=ctypes.RTLD_GLOBAL)
+                except Exception:
+                    pass
 
 whisper_model = None
 
