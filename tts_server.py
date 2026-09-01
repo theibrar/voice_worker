@@ -46,19 +46,21 @@ def get_kokoro():
     global kokoro_engine
     if kokoro_engine is None:
         try:
-            from kokoro_onnx import Kokoro
-            from onnxruntime import InferenceSession
             import onnxruntime as ort
+            from kokoro_onnx import Kokoro
 
-            available_providers = ort.get_available_providers()
-            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if "CUDAExecutionProvider" in available_providers else ["CPUExecutionProvider"]
-            logger.info(f"Loading Kokoro-82M ONNX with providers: {providers}...")
+            providers = getattr(ort, "get_available_providers", lambda: ["CPUExecutionProvider"])()
+            use_providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if "CUDAExecutionProvider" in providers else ["CPUExecutionProvider"]
+            logger.info(f"Loading Kokoro-82M ONNX with providers: {use_providers}...")
             
-            inf_sess = InferenceSession(MODEL_PATH, providers=providers)
-            kokoro_engine = Kokoro.from_session(inf_sess, VOICES_PATH)
-            logger.success(f"✓ Kokoro-82M Neural TTS initialized on GPU with {providers}.")
+            if hasattr(ort, "InferenceSession"):
+                inf_sess = ort.InferenceSession(MODEL_PATH, providers=use_providers)
+                kokoro_engine = Kokoro.from_session(inf_sess, VOICES_PATH)
+            else:
+                kokoro_engine = Kokoro(MODEL_PATH, VOICES_PATH)
+            logger.success("✓ Kokoro-82M Neural TTS initialized successfully.")
         except Exception as e:
-            logger.warning(f"CUDA provider init notice: {e}. Falling back to standard loader...")
+            logger.warning(f"ONNX session init notice: {e}. Falling back to standard Kokoro loader...")
             try:
                 from kokoro_onnx import Kokoro
                 kokoro_engine = Kokoro(MODEL_PATH, VOICES_PATH)

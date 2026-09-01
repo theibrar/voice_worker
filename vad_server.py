@@ -78,9 +78,7 @@ def health():
         "service": "silero-vad",
         "ready": True,
         "engine": "silero_neural" if vad_model is not None else "energy_bargein",
-        "threshold_dbfs": -20.0
-    }
-        "ready": vad_model is not None,
+        "threshold_dbfs": -20.0,
         "device": "cuda" if torch.cuda.is_available() else "cpu"
     }
 
