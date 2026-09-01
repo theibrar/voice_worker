@@ -133,21 +133,31 @@ def test_barge_in_simulation():
         return f"🔴 VAD Offline: {e}"
     return "VAD Ready"
 
+def check_vllm_status():
+    try:
+        r = requests.get("http://127.0.0.1:8000/v1/models", timeout=2)
+        if r.ok:
+            return "🟢 **vLLM Engine:** Online & Ready in VRAM (Qwen2.5-7B)"
+    except Exception:
+        pass
+    return "🟡 **vLLM Engine:** Loading weights or downloading from HuggingFace (~15GB). Models will become active once download completes!"
+
 # Build Gradio Interface
 with gr.Blocks(title="Apex Enterprise Voice AI - GPU Testbench", theme=gr.themes.Soft()) as demo:
     gr.Markdown("""
     # 🎙️ Apex Enterprise Voice AI - GPU Real-Time Testbench
     **Instance:** 1x NVIDIA RTX 3090 (24GB VRAM) | **Public IP:** `212.93.107.107`
-    Test microphone speech, measure sub-300ms latency, and tune human emotional prosody live!
     """)
 
-    telemetry_banner = gr.Markdown(value=get_gpu_telemetry())
+    with gr.Row():
+        telemetry_banner = gr.Markdown(value=get_gpu_telemetry())
+        vllm_banner = gr.Markdown(value=check_vllm_status())
 
     with gr.Row():
         with gr.Column(scale=5):
             gr.Markdown("### 1. Test Voice Pipeline (Mic or Text)")
-            mic_input = gr.Audio(sources=["microphone"], type="numpy", label="Speak into Microphone (Click to Record)")
-            text_input = gr.Textbox(label="Or Type Test Message", placeholder="e.g. Can you tell me your interest rates?")
+            mic_input = gr.Audio(sources=["microphone", "upload"], type="numpy", label="Speak into Microphone or Upload Audio")
+            text_input = gr.Textbox(label="Or Type Test Message", placeholder="e.g. Can you tell me about your pricing?")
             
             with gr.Row():
                 voice_dropdown = gr.Dropdown(
@@ -214,5 +224,5 @@ with gr.Blocks(title="Apex Enterprise Voice AI - GPU Testbench", theme=gr.themes
     )
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860, share=False)
+    demo.launch(server_name="0.0.0.0", server_port=7860, share=True)
 

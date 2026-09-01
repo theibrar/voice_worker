@@ -33,31 +33,50 @@ vad_utils = None
 def get_vad_model():
     global vad_model, vad_utils
     if vad_model is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # 1. Try pip package silero_vad
         try:
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            logger.info(f"Loading Silero VAD model on {device}...")
+            from silero_vad import load_silero_vad
+            logger.info(f"Loading Silero VAD from package on {device}...")
+            vad_model = load_silero_vad(onnx=False).to(device)
+            logger.success("✓ Silero VAD Engine initialized via silero_vad.")
+            return vad_model
+        except Exception as e:
+            logger.warning(f"Package load notice: {e}. Trying torch.hub...")
+
+        # 2. Try torch.hub
+        try:
             model, utils = torch.hub.load(
                 repo_or_dir='snakers4/silero-vad',
                 model='silero_vad',
                 force_reload=False,
+                trust_repo=True,
                 onnx=False
             )
             vad_model = model.to(device)
             vad_utils = utils
-            logger.success("✓ Silero VAD Engine initialized.")
+            logger.success("✓ Silero VAD Engine initialized via torch.hub.")
+            return vad_model
         except Exception as e:
             logger.error(f"Failed to load Silero VAD: {e}")
+
     return vad_model
 
 @app.on_event("startup")
 async def startup():
-    get_vad_model()
+    try:
+        get_vad_model()
+    except Exception as e:
+        logger.warning(f"VAD startup notice: {e}")
 
 @app.get("/health")
 def health():
     return {
-        "status": "healthy",
+        "status": "healthy" if vad_model is not None else "initializing",
         "service": "silero-vad",
+        "ready": vad_model is not None,
+        "device": "cuda" if torch.cuda.is_available() else "cpu"
+    }
         "ready": vad_model is not None,
         "device": "cuda" if torch.cuda.is_available() else "cpu"
     }

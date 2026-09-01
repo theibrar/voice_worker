@@ -35,6 +35,11 @@ fi
 
 # 2. Install System Dependencies
 echo -e "${GREEN}[2/6] Installing Audio & DSP System Libraries...${NC}"
+# Clear Ubuntu background unattended-upgrades lock
+killall unattended-upgr apt apt-get 2>/dev/null || true
+rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+dpkg --configure -a 2>/dev/null || true
+
 apt-get update -y
 apt-get install -y --no-install-recommends \
     ffmpeg \

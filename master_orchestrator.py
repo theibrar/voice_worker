@@ -17,7 +17,7 @@ from loguru import logger
 
 API_KEY = os.getenv("GPU_API_KEY", "sk-ibrasoft-gpu-voice")
 LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct")
-GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.65")
+GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.85")
 
 processes = []
 
@@ -42,6 +42,7 @@ def start_services():
 
     env = os.environ.copy()
     env["GPU_API_KEY"] = API_KEY
+    env["VLLM_USE_V1"] = "0"
 
     # 1. Start Kokoro-82M TTS Server (Port 8088)
     logger.info("► [1/5] Launching Kokoro-82M Neural TTS Engine (Port 8088)...")
@@ -76,8 +77,8 @@ def start_services():
         "--host", "0.0.0.0",
         "--api-key", API_KEY,
         "--gpu-memory-utilization", GPU_MEM_UTIL,
-        "--max-model-len", "4096",
-        "--enable-prefix-caching",
+        "--max-model-len", "2048",
+        "--enforce-eager",
         "--trust-remote-code"
     ]
     
