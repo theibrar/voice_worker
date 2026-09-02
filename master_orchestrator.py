@@ -103,7 +103,7 @@ def start_services():
     logger.success("==================================================================")
     logger.info(f"  • vLLM OpenAI API : http://173.185.79.174:46409/v1 (Port 8000)")
     logger.info(f"  • Kokoro TTS API  : http://173.185.79.174:47830 (Port 8088)")
-    logger.info(f"  • STT Audio API   : http://173.185.79.174:46819 (Port 8030)")
+    logger.info(f"  • STT Audio API   : http://173.185.79.174:46819 (Port 8030) [nvidia/parakeet-tdt-1.1b]")
     logger.info(f"  • Silero VAD API  : http://173.185.79.174:49760 (Port 8090)")
     logger.info(f"  • Gradio UI Web   : http://173.185.79.174:47761 (Port 7860)")
     logger.info(f"  • API Key         : {API_KEY}")

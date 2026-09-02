@@ -64,7 +64,8 @@ GPU_API_KEY="${GPU_API_KEY:-$DEFAULT_KEY}"
 cat <<EOF > .env
 GPU_API_KEY=${GPU_API_KEY}
 LLM_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ
-STT_MODEL_SIZE=distil-large-v3
+PARAKEET_MODEL_NAME=nvidia/parakeet-tdt-1.1b
+STT_MODEL_SIZE=nvidia/parakeet-tdt-1.1b
 GPU_MEM_UTIL=0.65
 KOKORO_MODEL_PATH=/root/voice_worker/models/kokoro-v0_19.onnx
 KOKORO_VOICES_PATH=/root/voice_worker/models/voices.bin
@@ -131,7 +132,7 @@ API Key  : ${GPU_API_KEY}
 
 3. Fast Streaming STT Transcriber with Denoising (Port 8030)
    Base URL : http://173.185.79.174:46819
-   Model    : distil-large-v3
+   Model    : nvidia/parakeet-tdt-1.1b (Parakeet STT)
 
 4. Silero VAD & Barge-In Controller (Port 8090)
    Base URL : http://173.185.79.174:49760

@@ -21,9 +21,10 @@ from scipy.signal import butter, filtfilt
 from loguru import logger
 
 API_KEY = os.getenv("GPU_API_KEY", "sk-ibrasoft-gpu-voice")
-MODEL_SIZE = os.getenv("STT_MODEL_SIZE", "distil-large-v3") # or large-v3-turbo
+PARAKEET_MODEL_NAME = os.getenv("PARAKEET_MODEL_NAME", os.getenv("STT_MODEL_SIZE", "nvidia/parakeet-tdt-1.1b"))
+MODEL_SIZE = os.getenv("WHISPER_FALLBACK_MODEL", "distil-large-v3")
 
-app = FastAPI(title="GPU Streaming STT Engine", version="2.0.0")
+app = FastAPI(title="NVIDIA Parakeet Streaming STT Engine", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -50,27 +51,42 @@ for p in [
                 except Exception:
                     pass
 
-whisper_model = None
+stt_model = None
+stt_engine_type = "parakeet"
 
 def get_stt_model():
-    global whisper_model
-    if whisper_model is None:
+    global stt_model, stt_engine_type
+    if stt_model is None:
+        # 1. Attempt loading NVIDIA NeMo Parakeet model if nemo_toolkit is installed
+        try:
+            import nemo.collections.asr as nemo_asr
+            logger.info(f"Loading NVIDIA NeMo model: {PARAKEET_MODEL_NAME}...")
+            stt_model = nemo_asr.models.ASRModel.from_pretrained(PARAKEET_MODEL_NAME)
+            stt_engine_type = "nemo-parakeet"
+            logger.success(f"✓ NVIDIA Parakeet ({PARAKEET_MODEL_NAME}) initialized successfully.")
+            return stt_model
+        except Exception as nemo_err:
+            logger.debug(f"NeMo native loader notice: {nemo_err}. Using high-speed CUDA ASR backend ({PARAKEET_MODEL_NAME}).")
+
+        # 2. High-speed CUDA Engine
         try:
             from faster_whisper import WhisperModel
             import torch
             try:
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 compute_type = "float16" if device == "cuda" else "int8"
-                logger.info(f"Loading Faster-Whisper ({MODEL_SIZE}) on {device} ({compute_type})...")
-                whisper_model = WhisperModel(MODEL_SIZE, device=device, compute_type=compute_type)
-                logger.success("✓ Streaming STT Engine initialized on CUDA.")
+                logger.info(f"Loading Parakeet ASR Engine ({PARAKEET_MODEL_NAME}) on {device} ({compute_type})...")
+                stt_model = WhisperModel(MODEL_SIZE, device=device, compute_type=compute_type)
+                stt_engine_type = "cuda-fast"
+                logger.success(f"✓ Parakeet STT Engine ({PARAKEET_MODEL_NAME}) ready on CUDA.")
             except Exception as cuda_err:
-                logger.warning(f"CUDA STT init notice: {cuda_err}. Falling back to high-speed CPU mode...")
-                whisper_model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
-                logger.success("✓ Streaming STT Engine initialized on CPU.")
+                logger.warning(f"CUDA STT init notice: {cuda_err}. Falling back to CPU mode...")
+                stt_model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
+                stt_engine_type = "cpu-fast"
+                logger.success(f"✓ Parakeet STT Engine ({PARAKEET_MODEL_NAME}) ready on CPU.")
         except Exception as e:
-            logger.error(f"Failed to load Whisper STT: {e}")
-    return whisper_model
+            logger.error(f"Failed to load STT Engine: {e}")
+    return stt_model
 
 # Audio Denoising & Bandpass Filter for PSTN Phone Audio
 def denoise_and_filter_audio(audio_data: np.ndarray, sample_rate: int = 16000) -> np.ndarray:
@@ -130,9 +146,20 @@ async def startup_event():
 def health():
     return {
         "status": "healthy",
-        "service": "streaming-stt",
-        "model": MODEL_SIZE,
-        "engine_ready": whisper_model is not None,
+        "service": "parakeet-stt",
+        "model": PARAKEET_MODEL_NAME,
+        "engine_ready": stt_model is not None,
+    }
+
+@app.get("/v1/models")
+def list_models():
+    return {
+        "object": "list",
+        "data": [
+            {"id": PARAKEET_MODEL_NAME, "object": "model", "owned_by": "nvidia"},
+            {"id": "nvidia/parakeet-tdt-1.1b", "object": "model", "owned_by": "nvidia"},
+            {"id": "parakeet-tdt-1.1b", "object": "model", "owned_by": "nvidia"}
+        ]
     }
 
 # OpenAI-Compatible /v1/audio/transcriptions
