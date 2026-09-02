@@ -137,6 +137,7 @@ def health():
 # OpenAI-Compatible /v1/audio/transcriptions
 @app.post("/v1/audio/transcriptions")
 @app.post("/transcribe")
+@app.post("/stt/transcribe")
 async def transcribe_audio(
     file: UploadFile = File(...),
     language: Optional[str] = Form("en"),
@@ -150,25 +151,29 @@ async def transcribe_audio(
     t0 = time.time()
     try:
         content = await file.read()
-        audio_stream = io.BytesIO(content)
-        data, samplerate = sf.read(audio_stream)
+        
+        # Save to tempfile so Faster-Whisper's ffmpeg handles webm/opus/wav/mp3
+        suffix = os.path.splitext(file.filename or "speech.webm")[1] or ".webm"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
 
-        # Convert stereo to mono if needed
-        if len(data.shape) > 1:
-            data = data.mean(axis=1)
+        try:
+            segments, info = model.transcribe(
+                tmp_path,
+                beam_size=1, # Greedy search for maximum speed
+                temperature=temperature or 0.0,
+                vad_filter=True, # Built-in VAD to trim silence
+                vad_parameters=dict(min_silence_duration_ms=250),
+            )
+            full_text = " ".join([segment.text.strip() for segment in segments]).strip()
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
 
-        # Apply on-device audio denoising
-        clean_audio = denoise_and_filter_audio(data, samplerate)
-
-        segments, info = model.transcribe(
-            clean_audio,
-            beam_size=1, # Greedy search for maximum speed
-            temperature=temperature or 0.0,
-            vad_filter=True, # Built-in VAD to trim silence
-            vad_parameters=dict(min_silence_duration_ms=250),
-        )
-
-        full_text = " ".join([segment.text.strip() for segment in segments]).strip()
         elapsed_ms = round((time.time() - t0) * 1000, 1)
 
         speculative_data = extract_speculative_entities(full_text)
