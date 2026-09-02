@@ -70,7 +70,15 @@ def run_voice_pipeline(audio_input, text_input, voice_choice, emotion_tag, user_
     llm_reply = ""
     try:
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-        prompt_with_emotion = f"{user_system_prompt}\nKeep answer concise (under 25 words). Prefix your answer with [{emotion_tag}] for emotional prosody."
+        human_system_instruction = (
+            f"{user_system_prompt}\n"
+            "STRICT VOICE RULES:\n"
+            "1. Prefix your response with a natural style tag in brackets (e.g., [cheerful], [calm], [whisper in small voice], [excited and fast], [empathy], [urgent]).\n"
+            "2. Keep spoken responses short (1-2 sentences maximum, under 25 words).\n"
+            "3. Optionally use <break time=\"300ms\"/> or (laughs)/(sighs) for human conversational realism.\n"
+            "4. Do NOT use bullet points or formatting."
+        )
+        prompt_with_emotion = human_system_instruction
         
         # Dynamically detect active vLLM model ID
         active_model = "Qwen/Qwen2.5-7B-Instruct-AWQ"

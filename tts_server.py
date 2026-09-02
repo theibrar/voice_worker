@@ -1,9 +1,12 @@
 """
-Kokoro-82M Streaming Neural TTS Server (Port 8088)
+Kokoro-82M Enterprise Neural TTS Server (Port 8088)
 - Ultra-Low Latency Chunked Streaming (<150ms TTFA)
+- Free-form & Natural Language Inline Style Tags ([whisper in small voice], [excited and fast], [calm], [urgent])
+- Non-Verbal Sound Cues Interceptor ((laughs), (sighs), (coughs), (gasps))
+- Wrapper-Level SSML Parsing (<break time="300ms"/>, <prosody rate="90%">)
+- Gain/Volume Control & Telephony Resampling
 - OpenAI-Compatible /v1/audio/speech Endpoint
-- Emotion & Prosody Control Tags ([empathy], [cheerful], [urgent], [calm])
-- Cognitive Fillers & Thinking Foley Bridge
+- WebSocket Real-Time PCM Streaming
 """
 
 import os
@@ -34,6 +37,7 @@ import time
 import asyncio
 import numpy as np
 import soundfile as sf
+from functools import lru_cache
 from typing import Optional, AsyncGenerator
 from fastapi import FastAPI, Request, HTTPException, Depends, status, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
@@ -51,7 +55,7 @@ if not os.path.exists(MODEL_PATH):
 if not os.path.exists(VOICES_PATH):
     VOICES_PATH = os.path.join(os.path.dirname(__file__), "models", "voices.bin")
 
-app = FastAPI(title="Kokoro Neural Streaming TTS Engine", version="2.0.0")
+app = FastAPI(title="Kokoro Neural Streaming TTS Engine", version="2.5.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -95,7 +99,6 @@ def verify_api_key(request: Request):
     auth_header = request.headers.get("Authorization", "")
     if API_KEY and API_KEY != "":
         if not auth_header.startswith("Bearer "):
-            # Allow query param fallback
             api_param = request.query_params.get("api_key", "")
             if api_param != API_KEY:
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing API key")
@@ -110,6 +113,7 @@ class SynthesizeRequest(BaseModel):
     text: str
     voice: Optional[str] = "af_bella"
     speed: Optional[float] = 1.0
+    gain: Optional[float] = 1.0
     lang: Optional[str] = "en-us"
     stream: Optional[bool] = False
 
@@ -119,44 +123,113 @@ class OpenAISpeechRequest(BaseModel):
     voice: Optional[str] = "af_bella"
     response_format: Optional[str] = "wav"
     speed: Optional[float] = 1.0
+    gain: Optional[float] = 1.0
 
-# Emotion Tag Processor
-def parse_emotion_and_prosody(text: str, base_speed: float = 1.0):
+# SSML & Paralinguistic Pre-Processor
+def preprocess_ssml_and_cues(text: str):
     """
-    Extracts emotional prosody tags:
-    [empathy] -> slightly slower (0.92x), softer delivery
-    [cheerful] -> slightly faster (1.05x), energetic
-    [urgent] -> faster (1.18x), direct
-    [whisper] / [calm] -> slower (0.88x)
+    Parses SSML-like tags (<break time="300ms"/>, <prosody rate="...">)
+    and paralinguistic cues ((laughs), (coughs), (gasps), (sighs)).
+    Replaces them with rhythm-shaping punctuation & pauses.
+    """
+    processed = text
+
+    # 1. Parse <break time="300ms"/> or <break time="1s"/>
+    def break_replacer(match):
+        val_str = match.group(1).lower()
+        if "ms" in val_str:
+            ms = float(re.sub(r"[^\d.]", "", val_str) or "300")
+        elif "s" in val_str:
+            ms = float(re.sub(r"[^\d.]", "", val_str) or "1") * 1000
+        else:
+            ms = 300.0
+
+        if ms >= 800:
+            return " ... ... "
+        elif ms >= 400:
+            return " ... "
+        else:
+            return " , "
+
+    processed = re.sub(r"<break\s+time=[\"']?([^\"'/>]+)[\"']?\s*/?>", break_replacer, processed, flags=re.IGNORECASE)
+
+    # 2. Parse <prosody ...> tags by stripping tag wrappers
+    processed = re.sub(r"</?prosody[^>]*>", "", processed, flags=re.IGNORECASE)
+
+    # 3. Intercept nonverbal/paralinguistic cues in parentheses: (laughs), (sighs), (gasps), (coughs), (clears throat)
+    def cue_replacer(match):
+        cue = match.group(1).lower()
+        if any(w in cue for w in ["laugh", "chuckle", "giggle"]):
+            return " ... (ha-ha) , "
+        elif any(w in cue for w in ["sigh", "gasp", "breath"]):
+            return " ... , "
+        elif any(w in cue for w in ["cough", "throat"]):
+            return " ... "
+        else:
+            return " , "
+
+    processed = re.sub(r"\((laughs|chuckle|giggle|sighs|gasps|coughs|clears throat|snicker)\)", cue_replacer, processed, flags=re.IGNORECASE)
+
+    # 4. Normalize paragraph breaks (\n\n) to strong pauses
+    processed = re.sub(r"\n\s*\n", " ... \n", processed)
+
+    return processed.strip()
+
+
+# Free-Form & Natural Language Prosody Style Tag Parser
+def parse_emotion_and_prosody(text: str, base_speed: float = 1.0, base_gain: float = 1.0):
+    """
+    Parses bracketed style/emotion tags [...]:
+    - Single-word tags: [cheerful], [empathy], [urgent], [calm], [whisper], [happy], [sad], [angry], [excited], [surprised], [sarcastic], [disgust]
+    - Free-form natural language cues: [whisper in small voice], [pitch up], [excited and fast], [calm and slow], [softly], [nervously]
     """
     speed = base_speed
-    emotion = "neutral"
+    gain = base_gain
+    detected_styles = []
 
-    if "[empathy]" in text.lower():
-        speed = max(0.85, base_speed * 0.92)
-        emotion = "empathy"
-    elif "[cheerful]" in text.lower():
-        speed = min(1.3, base_speed * 1.06)
-        emotion = "cheerful"
-    elif "[urgent]" in text.lower():
-        speed = min(1.4, base_speed * 1.18)
-        emotion = "urgent"
-    elif "[calm]" in text.lower() or "[whisper]" in text.lower():
-        speed = max(0.82, base_speed * 0.88)
-        emotion = "calm"
+    # Find all inline tags in brackets [...]
+    bracket_tags = re.findall(r"\[([^\]]+)\]", text)
 
-    # Clean tags from spoken text
-    clean_text = re.sub(r"\[(empathy|cheerful|urgent|calm|whisper|neutral)\]", "", text, flags=re.IGNORECASE).strip()
-    return clean_text, speed, emotion
+    for tag in bracket_tags:
+        tag_lower = tag.lower().strip()
+        detected_styles.append(tag_lower)
 
-from functools import lru_cache
+        # Dynamic Speed Modifiers
+        if any(w in tag_lower for w in ["urgent", "fast", "excited", "quick", "pitch up", "energetic"]):
+            speed = min(1.4, speed * 1.16)
+        if any(w in tag_lower for w in ["whisper", "calm", "slow", "soft", "small voice", "gently", "nervously", "empathy"]):
+            speed = max(0.75, speed * 0.88)
+        if "very slow" in tag_lower:
+            speed = max(0.70, speed * 0.80)
+
+        # Dynamic Gain / Volume Modifiers
+        if any(w in tag_lower for w in ["whisper", "small voice", "softly", "quiet"]):
+            gain = max(0.5, gain * 0.75)
+        if any(w in tag_lower for w in ["excited", "urgent", "loud", "shout"]):
+            gain = min(2.0, gain * 1.15)
+
+    # Strip all bracketed tags from the clean text
+    clean_text = re.sub(r"\[[^\]]+\]", "", text).strip()
+
+    # Also run SSML & paralinguistic preprocessor
+    clean_text = preprocess_ssml_and_cues(clean_text)
+
+    style_summary = ", ".join(detected_styles) if detected_styles else "neutral"
+    return clean_text, speed, gain, style_summary
+
 
 @lru_cache(maxsize=512)
-def generate_kokoro_audio_cached(text: str, voice_name: str, speed: float, lang: str):
+def generate_kokoro_audio_cached(text: str, voice_name: str, speed: float, lang: str, gain: float = 1.0):
     kokoro = get_kokoro()
     if not kokoro:
         raise RuntimeError("Kokoro engine not ready")
-    return kokoro.create(text, voice=voice_name, speed=speed, lang=lang)
+    samples, sr = kokoro.create(text, voice=voice_name, speed=speed, lang=lang)
+
+    # Apply Volume/Gain control scaling
+    if gain != 1.0:
+        samples = np.clip(samples * gain, -1.0, 1.0)
+
+    return samples, sr
 
 @app.on_event("startup")
 async def startup_event():
@@ -164,8 +237,8 @@ async def startup_event():
     if kokoro:
         logger.info("⚡ Pre-warming Kokoro ONNX CUDA kernels...")
         try:
-            generate_kokoro_audio_cached("Warmup audio test.", "af_bella", 1.0, "en-us")
-            generate_kokoro_audio_cached("Warmup audio test.", "am_michael", 1.0, "en-us")
+            generate_kokoro_audio_cached("Warmup audio test.", "af_bella", 1.0, "en-us", 1.0)
+            generate_kokoro_audio_cached("Warmup audio test.", "am_michael", 1.0, "en-us", 1.0)
             logger.success("✓ Kokoro ONNX CUDA kernels pre-warmed successfully!")
         except Exception as e:
             logger.warning(f"Warmup notice: {e}")
@@ -178,6 +251,14 @@ def health_check():
         "engine_ready": kokoro_engine is not None,
         "sample_rate": 24000,
         "default_voice": "af_bella",
+        "features": [
+            "freeform_style_tags",
+            "paralinguistic_cues",
+            "wrapper_ssml_breaks",
+            "gain_volume_control",
+            "chunked_pcm_streaming",
+            "lru_kernel_cache"
+        ]
     }
 
 @app.post("/synthesize")
@@ -187,23 +268,23 @@ async def synthesize_speech(req: SynthesizeRequest, request: Request):
     if not kokoro:
         raise HTTPException(status_code=500, detail="Kokoro TTS engine not initialized.")
 
-    clean_text, effective_speed, emotion = parse_emotion_and_prosody(req.text, req.speed or 1.0)
+    clean_text, effective_speed, effective_gain, style_desc = parse_emotion_and_prosody(req.text, req.speed or 1.0, req.gain or 1.0)
     voice_name = req.voice or "af_bella"
 
     t0 = time.time()
     try:
-        samples, sample_rate = kokoro.create(clean_text, voice=voice_name, speed=effective_speed, lang=req.lang or "en-us")
+        samples, sample_rate = generate_kokoro_audio_cached(clean_text, voice_name, effective_speed, req.lang or "en-us", effective_gain)
         
         buf = io.BytesIO()
         sf.write(buf, samples, sample_rate, format="WAV", subtype="PCM_16")
         wav_bytes = buf.getvalue()
 
         latency_ms = round((time.time() - t0) * 1000, 1)
-        logger.info(f"🎙️ [KOKORO TTS] voice='{voice_name}' emotion='{emotion}' | {latency_ms}ms | {len(wav_bytes)} bytes")
+        logger.info(f"🎙️ [KOKORO TTS] voice='{voice_name}' style='{style_desc}' | {latency_ms}ms | {len(wav_bytes)} bytes")
 
         return Response(content=wav_bytes, media_type="audio/wav", headers={
             "X-Latency-Ms": str(latency_ms),
-            "X-Emotion-Detected": emotion,
+            "X-Style-Detected": style_desc,
             "X-Sample-Rate": str(sample_rate),
         })
     except Exception as e:
@@ -218,7 +299,7 @@ async def openai_compatible_speech(req: OpenAISpeechRequest, request: Request):
     if not kokoro:
         raise HTTPException(status_code=500, detail="Kokoro TTS not ready")
 
-    clean_text, effective_speed, emotion = parse_emotion_and_prosody(req.input, req.speed or 1.0)
+    clean_text, effective_speed, effective_gain, style_desc = parse_emotion_and_prosody(req.input, req.speed or 1.0, req.gain or 1.0)
     
     # Map common OpenAI voice aliases to Kokoro
     voice_map = {
@@ -231,11 +312,16 @@ async def openai_compatible_speech(req: OpenAISpeechRequest, request: Request):
     }
     target_voice = voice_map.get(req.voice.lower(), req.voice)
 
-    samples, sample_rate = kokoro.create(clean_text, voice=target_voice, speed=effective_speed, lang="en-us")
+    samples, sample_rate = generate_kokoro_audio_cached(clean_text, target_voice, effective_speed, "en-us", effective_gain)
     buf = io.BytesIO()
-    sf.write(buf, samples, sample_rate, format="WAV", subtype="PCM_16")
     
-    return Response(content=buf.getvalue(), media_type="audio/wav")
+    out_format = (req.response_format or "wav").lower()
+    if out_format == "pcm":
+        pcm16 = (samples * 32767).astype(np.int16).tobytes()
+        return Response(content=pcm16, media_type="audio/pcm")
+    else:
+        sf.write(buf, samples, sample_rate, format="WAV", subtype="PCM_16")
+        return Response(content=buf.getvalue(), media_type="audio/wav")
 
 # Streaming Chunked Endpoint (TTFA < 150ms)
 @app.post("/stream")
@@ -245,7 +331,7 @@ async def stream_speech(req: SynthesizeRequest, request: Request):
     if not kokoro:
         raise HTTPException(status_code=500, detail="Kokoro TTS not ready")
 
-    clean_text, effective_speed, _ = parse_emotion_and_prosody(req.text, req.speed or 1.0)
+    clean_text, effective_speed, effective_gain, style_desc = parse_emotion_and_prosody(req.text, req.speed or 1.0, req.gain or 1.0)
     voice_name = req.voice or "af_bella"
 
     t_req = time.time()
@@ -259,10 +345,10 @@ async def stream_speech(req: SynthesizeRequest, request: Request):
             if not clause:
                 continue
             t_c0 = time.time()
-            samples, sr = generate_kokoro_audio_cached(clause, voice_name, effective_speed, req.lang or "en-us")
+            samples, sr = generate_kokoro_audio_cached(clause, voice_name, effective_speed, req.lang or "en-us", effective_gain)
             t_syn = round((time.time() - t_c0) * 1000, 1)
             if i == 0:
-                logger.info(f"⚡ [TTS FIRST CHUNK] text='{clause[:30]}' | syn={t_syn}ms | total={(time.time() - t_req)*1000:.1f}ms")
+                logger.info(f"⚡ [TTS STREAM CHUNK #1] text='{clause[:30]}' style='{style_desc}' | syn={t_syn}ms | total={(time.time() - t_req)*1000:.1f}ms")
             pcm16 = (samples * 32767).astype(np.int16).tobytes()
             yield pcm16
             await asyncio.sleep(0.005)
@@ -270,6 +356,7 @@ async def stream_speech(req: SynthesizeRequest, request: Request):
     return StreamingResponse(audio_generator(), media_type="application/octet-stream", headers={
         "Transfer-Encoding": "chunked",
         "Content-Type": "audio/pcm; rate=24000; channels=1",
+        "X-Style-Detected": style_desc
     })
 
 # Cognitive Fillers & Thinking Foley
@@ -284,7 +371,7 @@ FILLER_PHRASES = [
 async def get_cognitive_filler(voice: Optional[str] = "af_bella", request: Request = None):
     kokoro = get_kokoro()
     phrase = np.random.choice(FILLER_PHRASES)
-    samples, sr = kokoro.create(phrase, voice=voice, speed=1.05)
+    samples, sr = generate_kokoro_audio_cached(phrase, voice, 1.05, "en-us", 1.0)
     buf = io.BytesIO()
     sf.write(buf, samples, sr, format="WAV", subtype="PCM_16")
     return Response(content=buf.getvalue(), media_type="audio/wav", headers={
@@ -302,10 +389,11 @@ async def websocket_tts(websocket: WebSocket):
             text = data.get("text", "")
             voice = data.get("voice", "af_bella")
             speed = float(data.get("speed", 1.0))
+            gain = float(data.get("gain", 1.0))
 
             if text.strip() and kokoro:
-                clean_text, eff_speed, _ = parse_emotion_and_prosody(text, speed)
-                samples, sr = kokoro.create(clean_text, voice=voice, speed=eff_speed)
+                clean_text, eff_speed, eff_gain, _ = parse_emotion_and_prosody(text, speed, gain)
+                samples, sr = generate_kokoro_audio_cached(clean_text, voice, eff_speed, "en-us", eff_gain)
                 pcm16 = (samples * 32767).astype(np.int16).tobytes()
                 await websocket.send_bytes(pcm16)
     except WebSocketDisconnect:

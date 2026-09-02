@@ -17,7 +17,7 @@ from loguru import logger
 
 API_KEY = os.getenv("GPU_API_KEY", "sk-ibrasoft-gpu-voice")
 LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct-AWQ")
-GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.70")
+GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.65")
 
 processes = []
 
@@ -36,8 +36,8 @@ signal.signal(signal.SIGTERM, signal_handler)
 def start_services():
     logger.info("==================================================================")
     logger.info("   🎙️  ENTERPRISE GPU VOICE AI STACK - MASTER ORCHESTRATOR         ")
-    logger.info("   Hardware: 1x NVIDIA RTX 3090 (24GB VRAM)                       ")
-    logger.info("   Public IP: 212.93.107.107                                      ")
+    logger.info("   Hardware: 1x NVIDIA RTX 3060 (12GB VRAM) | AMD EPYC 7502P       ")
+    logger.info("   Public IP: 173.185.79.174                                      ")
     logger.info("==================================================================")
 
     env = os.environ.copy()
@@ -101,11 +101,11 @@ def start_services():
     logger.success("\n==================================================================")
     logger.success("   🎉 ALL 5 GPU SERVICES ARE LIVE AND RUNNING!                   ")
     logger.success("==================================================================")
-    logger.info(f"  • vLLM OpenAI API : http://212.93.107.107:41091/v1 (Port 8000)")
-    logger.info(f"  • Kokoro TTS API  : http://212.93.107.107:41438 (Port 8088)")
-    logger.info(f"  • STT Audio API   : http://212.93.107.107:41182 (Port 8030)")
-    logger.info(f"  • Silero VAD API  : http://212.93.107.107:41423 (Port 8090)")
-    logger.info(f"  • Gradio UI Web   : http://212.93.107.107:41064 (Port 7860)")
+    logger.info(f"  • vLLM OpenAI API : http://173.185.79.174:46409/v1 (Port 8000)")
+    logger.info(f"  • Kokoro TTS API  : http://173.185.79.174:47830 (Port 8088)")
+    logger.info(f"  • STT Audio API   : http://173.185.79.174:46819 (Port 8030)")
+    logger.info(f"  • Silero VAD API  : http://173.185.79.174:49760 (Port 8090)")
+    logger.info(f"  • Gradio UI Web   : http://173.185.79.174:47761 (Port 7860)")
     logger.info(f"  • API Key         : {API_KEY}")
     logger.success("==================================================================\n")
 
