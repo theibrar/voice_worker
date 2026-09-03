@@ -18,6 +18,12 @@ from loguru import logger
 API_KEY = os.getenv("GPU_API_KEY", "sk-ibrasoft-gpu-voice")
 LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct-AWQ")
 GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.65")
+PUBLIC_IP = os.getenv("PUBLIC_IP", "77.104.167.149")
+PORT_VLLM = os.getenv("PORT_VLLM", "45717")
+PORT_TTS = os.getenv("PORT_TTS", "45042")
+PORT_STT = os.getenv("PORT_STT", "45064")
+PORT_VAD = os.getenv("PORT_VAD", "45810")
+PORT_UI = os.getenv("PORT_UI", "45227")
 
 processes = []
 
@@ -36,13 +42,27 @@ signal.signal(signal.SIGTERM, signal_handler)
 def start_services():
     logger.info("==================================================================")
     logger.info("   🎙️  ENTERPRISE GPU VOICE AI STACK - MASTER ORCHESTRATOR         ")
-    logger.info("   Hardware: 1x NVIDIA RTX 3060 (12GB VRAM) | AMD EPYC 7502P       ")
-    logger.info("   Public IP: 173.185.79.174                                      ")
+    logger.info("   Hardware: 1x NVIDIA RTX 4060 Ti (16GB VRAM)                    ")
+    logger.info("   CPU: AMD EPYC 7K62 48-Core Processor                           ")
+    logger.info(f"   Public IP: {PUBLIC_IP}                                          ")
     logger.info("==================================================================")
 
     env = os.environ.copy()
     env["GPU_API_KEY"] = API_KEY
     env["VLLM_USE_V1"] = "0"
+    # Minimize CUDA context & PyTorch overhead across all 4 worker processes
+    env["CUDA_MODULE_LOADING"] = "LAZY"
+    env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+    
+    logger.info("📊 VRAM ALLOCATION BUDGET (16.0 GB Total):")
+    logger.info("   • Qwen3-4B Q4_K_M Weights      : ~2.5 GB")
+    logger.info("   • Parakeet TDT 0.6B INT8       : ~0.6 GB")
+    logger.info("   • Kokoro-82M ONNX              : ~0.5 GB")
+    logger.info("   • Silero VAD v5                : ~0.1 GB")
+    logger.info("   • CUDA / PyTorch Contexts      : ~1.2 GB (Kernel & Driver overhead)")
+    logger.info("   • Total Static Base Footprint   : ~4.9 GB / 16.0 GB")
+    logger.info("   • FREE VRAM for 30 Callers     : ~11.1 GB (Continuous Batching Slots)")
+    logger.info("==================================================================")
     cublas_lib = "/usr/local/lib/python3.10/dist-packages/nvidia/cublas/lib"
     cudnn_lib = "/usr/local/lib/python3.10/dist-packages/nvidia/cudnn/lib"
     curun_lib = "/usr/local/lib/python3.10/dist-packages/nvidia/cuda_runtime/lib"
@@ -77,35 +97,80 @@ def start_services():
     processes.append(p_ui)
     time.sleep(1.5)
 
-    # 5. Start vLLM OpenAI-compatible Engine (Port 8000)
-    logger.info(f"► [5/5] Launching vLLM Engine ({LLM_MODEL}) on Port 8000...")
-    vllm_cmd = [
-        sys.executable, "-m", "vllm.entrypoints.openai.api_server",
-        "--model", LLM_MODEL,
-        "--port", "8000",
-        "--host", "0.0.0.0",
-        "--api-key", API_KEY,
-        "--gpu-memory-utilization", GPU_MEM_UTIL,
-        "--max-model-len", "4096",
-        "--quantization", "awq",
-        "--enforce-eager",
-        "--trust-remote-code"
-    ]
-    
-    try:
-        p_vllm = subprocess.Popen(vllm_cmd, env=env)
-        processes.append(p_vllm)
-    except Exception as e:
-        logger.error(f"Could not start vLLM directly: {e}")
+    # 5. Start LLM Engine (Port 8000)
+    # High-Concurrency Continuous Batching Support (up to 30 concurrent active callers)
+    gguf_model_path = os.path.join(os.path.dirname(__file__), "models", "llm", "Qwen3-4B-Q4_K_M.gguf")
+    p_llm = None
+
+    if os.path.exists(gguf_model_path):
+        import shutil
+        logger.info(f"► [5/5] Launching llama.cpp Engine with Continuous Batching ({gguf_model_path})...")
+        logger.info("   ⚡ High-Concurrency Mode: --parallel 30 --cont-batching --flash-attn")
+        
+        llama_bin = shutil.which("llama-server") or "/usr/local/bin/llama-server"
+        if llama_bin and os.path.exists(llama_bin):
+            llama_cmd = [
+                llama_bin,
+                "-m", gguf_model_path,
+                "--port", "8000",
+                "--host", "0.0.0.0",
+                "--api-key", API_KEY,
+                "-ngl", "99",               # 100% GPU offload
+                "--parallel", "30",         # 30 concurrent active speakers
+                "--cont-batching",          # Continuous batching for simultaneous prompt processing
+                "-c", "32768",              # Global context memory
+                "--flash-attn",             # FlashAttention for fast KV cache
+                "--alias", "Qwen3-4B"
+            ]
+        else:
+            llama_cmd = [
+                sys.executable, "-m", "llama_cpp.server",
+                "--model", gguf_model_path,
+                "--port", "8000",
+                "--host", "0.0.0.0",
+                "--api_key", API_KEY,
+                "--n_gpu_layers", "99",
+                "--n_ctx", "32768"
+            ]
+        try:
+            p_llm = subprocess.Popen(llama_cmd, env=env)
+            processes.append(p_llm)
+            logger.success("✓ llama.cpp server spawned with 30 concurrent slots & continuous batching!")
+        except Exception as e:
+            logger.warning(f"Could not start llama.cpp server: {e}. Falling back to vLLM...")
+
+    if p_llm is None:
+        logger.info(f"► [5/5] Launching vLLM Engine ({LLM_MODEL}) on Port 8000...")
+        logger.info("   ⚡ Continuous Batching: max-num-seqs 32 (Continuous PagedAttention)")
+        vllm_cmd = [
+            sys.executable, "-m", "vllm.entrypoints.openai.api_server",
+            "--model", LLM_MODEL,
+            "--port", "8000",
+            "--host", "0.0.0.0",
+            "--api-key", API_KEY,
+            "--gpu-memory-utilization", GPU_MEM_UTIL,
+            "--max-model-len", "4096",
+            "--max-num-seqs", "32",              # 32 concurrent requests with continuous batching
+            "--max-num-batched-tokens", "4096",
+            "--quantization", "awq",
+            "--enforce-eager",
+            "--trust-remote-code"
+        ]
+        try:
+            p_llm = subprocess.Popen(vllm_cmd, env=env)
+            processes.append(p_llm)
+            logger.success("✓ vLLM spawned with continuous batching (32 concurrent sequences)!")
+        except Exception as e:
+            logger.error(f"Could not start vLLM: {e}")
 
     logger.success("\n==================================================================")
     logger.success("   🎉 ALL 5 GPU SERVICES ARE LIVE AND RUNNING!                   ")
     logger.success("==================================================================")
-    logger.info(f"  • vLLM OpenAI API : http://173.185.79.174:46409/v1 (Port 8000)")
-    logger.info(f"  • Kokoro TTS API  : http://173.185.79.174:47830 (Port 8088)")
-    logger.info(f"  • STT Audio API   : http://173.185.79.174:46819 (Port 8030) [nvidia/parakeet-tdt-1.1b]")
-    logger.info(f"  • Silero VAD API  : http://173.185.79.174:49760 (Port 8090)")
-    logger.info(f"  • Gradio UI Web   : http://173.185.79.174:47761 (Port 7860)")
+    logger.info(f"  • vLLM OpenAI API : http://{PUBLIC_IP}:{PORT_VLLM}/v1 (Port 8000)")
+    logger.info(f"  • Kokoro TTS API  : http://{PUBLIC_IP}:{PORT_TTS} (Port 8088)")
+    logger.info(f"  • STT Audio API   : http://{PUBLIC_IP}:{PORT_STT} (Port 8030)")
+    logger.info(f"  • Silero VAD API  : http://{PUBLIC_IP}:{PORT_VAD} (Port 8090)")
+    logger.info(f"  • Gradio UI Web   : http://{PUBLIC_IP}:{PORT_UI} (Port 7860)")
     logger.info(f"  • API Key         : {API_KEY}")
     logger.success("==================================================================\n")
 

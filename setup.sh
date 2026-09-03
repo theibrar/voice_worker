@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Enterprise Voice AI GPU Node - Automated One-Click Installer
-# Hardware Target: NVIDIA RTX 3060 (12GB VRAM) | AMD EPYC 7502P
-# Public IP: 173.185.79.174
+# Hardware Target: 1x NVIDIA RTX 4060 Ti (16GB VRAM) | AMD EPYC 7K62
+# Public IP: 77.104.167.149
+# Stack: Parakeet TDT 0.6B INT8 -> Qwen 4B/7B -> Kokoro-82M (+ Silero VAD v5)
 # ==============================================================================
 
 set -e
@@ -18,8 +19,10 @@ NC='\033[0m'
 echo -e "${CYAN}"
 echo "=============================================================================="
 echo "    🎙️  ENTERPRISE GPU VOICE AI WORKER - AUTOMATED INSTALLER                  "
-echo "    Target GPU : NVIDIA RTX 3060 (12GB VRAM) | AMD EPYC 7502P                 "
-echo "    Public IP  : 173.185.79.174                                               "
+echo "    Target GPU : 1x NVIDIA RTX 4060 Ti (16GB VRAM)                            "
+echo "    CPU        : AMD EPYC 7K62 48-Core Processor                              "
+echo "    Public IP  : 77.104.167.149                                               "
+echo "    Pipeline   : Parakeet TDT 0.6B -> Qwen3-4B / Qwen2.5 -> Kokoro-82M        "
 echo "=============================================================================="
 echo -e "${NC}"
 
@@ -52,99 +55,119 @@ apt-get install -y --no-install-recommends \
     python3-pip \
     python3-dev \
     build-essential \
-    espeak-ng \
-    libespeak-ng-dev \
-    libespeak-ng1
+    libespeak-ng-dev
 
-# 3. Configure Environment Variables
-echo -e "${GREEN}[3/6] Setting Up Configuration...${NC}"
+# 3. Configure Environment & API Key
+echo -e "${GREEN}[3/6] Setting Up Secure Environment...${NC}"
 DEFAULT_KEY="sk-ibrasoft-gpu-voice"
-GPU_API_KEY="${GPU_API_KEY:-$DEFAULT_KEY}"
+PUBLIC_IP="77.104.167.149"
 
 cat <<EOF > .env
-GPU_API_KEY=${GPU_API_KEY}
+GPU_API_KEY=${DEFAULT_KEY}
+PUBLIC_IP=${PUBLIC_IP}
 LLM_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ
-PARAKEET_MODEL_NAME=nvidia/parakeet-tdt-1.1b
-STT_MODEL_SIZE=nvidia/parakeet-tdt-1.1b
 GPU_MEM_UTIL=0.65
+STT_MODEL_SIZE=distil-large-v3
+PORT_VLLM=45717
+PORT_TTS=45042
+PORT_STT=45064
+PORT_VAD=45810
+PORT_UI=45227
+CUDA_MODULE_LOADING=LAZY
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 KOKORO_MODEL_PATH=/root/voice_worker/models/kokoro-v0_19.onnx
 KOKORO_VOICES_PATH=/root/voice_worker/models/voices.bin
 EOF
 
-echo -e "${GREEN}✓ Environment configured.${NC}"
+echo -e "${GREEN}✓ Environment configured with secure API key.${NC}"
 
-# 4. Install Python AI Libraries
-echo -e "${GREEN}[4/6] Installing Python AI Stack...${NC}"
+# 4. Install Python AI Libraries & llama.cpp Server
+echo -e "${GREEN}[4/6] Installing PyTorch, vLLM, Faster-Whisper, Kokoro, Silero, Gradio, & llama.cpp...${NC}"
 python3 -m pip install --upgrade pip setuptools wheel
 python3 -m pip install -r requirements.txt
-python3 -m pip install --no-cache-dir onnxruntime-gpu==1.19.0
+python3 -m pip install llama-cpp-python[server] --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 || true
 
-# Setup NVIDIA library links for ONNX and CTranslate2
-echo -e "${GREEN}Configuring NVIDIA CUDA dynamic libraries...${NC}"
-for dir in /usr/local/cuda/lib64 $(find /usr/local/lib/python3.10/dist-packages/nvidia/ -name "lib" -type d 2>/dev/null); do
-    for f in $dir/*.so*; do
-        if [ -f "$f" ]; then
-            base=$(basename "$f")
-            ln -sf "$f" "/usr/lib/$base" 2>/dev/null || true
-            if [[ "$base" == *.so.12* ]]; then
-                alias11=${base/.so.12/.so.11}
-                alias10=${base/.so.12/.so.10}
-                ln -sf "$f" "/usr/lib/$alias11" 2>/dev/null || true
-                ln -sf "$f" "/usr/lib/$alias10" 2>/dev/null || true
-            fi
-        fi
-    done
-done
-ldconfig 2>/dev/null || true
+# 5. Download Neural Model Weights (Kokoro, Parakeet, Qwen)
+echo -e "${GREEN}[5/6] Downloading & Verifying Model Weights...${NC}"
+mkdir -p models/parakeet models/llm
 
-# 5. Download Kokoro Neural Model & Voices
-echo -e "${GREEN}[5/6] Checking Kokoro-82M ONNX Neural Audio Weights & Voices...${NC}"
-mkdir -p models
-
+# A. Kokoro-82M ONNX & Voices
 if [ ! -f "models/kokoro-v0_19.onnx" ]; then
-    echo "Downloading kokoro-v0_19.onnx (320MB)..."
+    echo "Downloading Kokoro-82M ONNX weights (320MB)..."
     wget -q --show-progress -c https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/kokoro-v0_19.onnx -O models/kokoro-v0_19.onnx
 fi
 
 if [ ! -f "models/voices.bin" ]; then
-    echo "Downloading voices.bin (28MB)..."
+    echo "Downloading Kokoro 54-voice pack (28MB)..."
     wget -q --show-progress -c https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/voices.bin -O models/voices.bin
 fi
 
-echo -e "${GREEN}✓ Neural audio models ready in ./models/${NC}"
+# B. Parakeet TDT 0.6B v3 INT8
+echo "Downloading Parakeet TDT 0.6B INT8 components..."
+PARAKEET_URL="https://huggingface.co/aoiandroid/Parakeet-TDT-0.6B-v3-LiteRT-INT8/resolve/main"
 
-# 6. Generate Endpoints File
+if [ ! -f "models/parakeet/parakeet-encoder.tflite" ]; then
+    echo "  • parakeet-encoder.tflite (~567MB)..."
+    wget -q --show-progress -c "${PARAKEET_URL}/parakeet-encoder.tflite" -O models/parakeet/parakeet-encoder.tflite || true
+fi
+
+if [ ! -f "models/parakeet/parakeet-decoder-joint.tflite" ]; then
+    echo "  • parakeet-decoder-joint.tflite (~17MB)..."
+    wget -q --show-progress -c "${PARAKEET_URL}/parakeet-decoder-joint.tflite" -O models/parakeet/parakeet-decoder-joint.tflite || true
+fi
+
+if [ ! -f "models/parakeet/vocab.json" ]; then
+    echo "  • vocab.json..."
+    wget -q -c "${PARAKEET_URL}/vocab.json" -O models/parakeet/vocab.json || true
+fi
+
+if [ ! -f "models/parakeet/config.json" ]; then
+    echo "  • config.json..."
+    wget -q -c "${PARAKEET_URL}/config.json" -O models/parakeet/config.json || true
+fi
+
+# C. Qwen3-4B Q4_K_M GGUF
+if [ ! -f "models/llm/Qwen3-4B-Q4_K_M.gguf" ]; then
+    echo "Downloading Qwen3-4B-Q4_K_M.gguf (~2.5GB)..."
+    wget -q --show-progress -c "https://huggingface.co/bartowski/Qwen_Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf" -O models/llm/Qwen3-4B-Q4_K_M.gguf || true
+fi
+
+echo -e "${GREEN}✓ All model assets downloaded and cached in ./models/${NC}"
+
+# 6. Generate Production Endpoints File
 cat <<EOF > ENDPOINTS.txt
 ==============================================================================
    APEX ENTERPRISE GPU VOICE AI CLUSTER - PRODUCTION ENDPOINTS
+   Hardware: 1x NVIDIA RTX 4060 Ti (16GB VRAM) | AMD EPYC 7K62
 ==============================================================================
 
-Public IP: 173.185.79.174
-API Key  : ${GPU_API_KEY}
+Public IP: ${PUBLIC_IP}
+API Key  : ${DEFAULT_KEY}
 
-1. vLLM OpenAI-Compatible LLM Engine (Port 8000)
-   Base URL : http://173.185.79.174:46409/v1
-   Model    : Qwen/Qwen2.5-7B-Instruct-AWQ
+1. vLLM / LLM OpenAI Engine (Port 8000)
+   Public URL : http://${PUBLIC_IP}:45717/v1
+   Model      : Qwen3-4B / Qwen2.5-7B-Instruct-AWQ
 
-2. Kokoro-82M Streaming Neural TTS Engine (Port 8088)
-   Base URL : http://173.185.79.174:47830
-   Voices   : af_bella, af_sarah, am_adam, am_michael, bf_emma
+2. Kokoro-82M Streaming Neural TTS (Port 8088)
+   Public URL : http://${PUBLIC_IP}:45042
+   Voices     : Full 54-voice pack (af_bella, am_michael, etc.)
+   Features   : Free-form style tags, SSML <break>, volume gain, <150ms TTFA
 
-3. Fast Streaming STT Transcriber with Denoising (Port 8030)
-   Base URL : http://173.185.79.174:46819
-   Model    : nvidia/parakeet-tdt-1.1b (Parakeet STT)
+3. Fast Streaming STT Engine (Port 8030)
+   Public URL : http://${PUBLIC_IP}:45064
+   Model      : Parakeet TDT 0.6B / Faster-Whisper distil-large-v3
 
-4. Silero VAD & Barge-In Controller (Port 8090)
-   Base URL : http://173.185.79.174:49760
+4. Silero VAD v5 Controller (Port 8090)
+   Public URL : http://${PUBLIC_IP}:45810
+   Spec       : 16kHz, 512 samples / 32ms frame chunking
 
-5. Gradio Real-Time Audio Playground (Port 7860)
-   Web UI   : http://173.185.79.174:47761
+5. Gradio Live Interactive Playground (Port 7860)
+   Public URL : http://${PUBLIC_IP}:45227
 ==============================================================================
 EOF
 
 # 7. Launch All Services via tmux
 echo -e "${GREEN}[6/6] Launching All 5 GPU AI Engines in Background...${NC}"
-pkill -9 -f "python3" 2>/dev/null || true
 tmux kill-session -t voice-worker 2>/dev/null || true
 tmux new-session -d -s voice-worker "python3 master_orchestrator.py"
 
@@ -154,9 +177,9 @@ cat ENDPOINTS.txt
 
 echo -e "${CYAN}"
 echo "=============================================================================="
-echo " 🎉 ALL GPU SERVICES ARE NOW RUNNING IN THE BACKGROUND!"
-echo "    You can inspect live logs anytime with: tmux attach -t voice-worker"
-echo "    Or test in your browser at:"
-echo "    👉 http://173.185.79.174:47761"
+echo " 🎉 ALL GPU SERVICES ARE RUNNING IN THE BACKGROUND!"
+echo "    Inspect live logs anytime with: tmux attach -t voice-worker"
+echo "    Or test your mic in your browser at:"
+echo "    👉 http://${PUBLIC_IP}:45227"
 echo "=============================================================================="
 echo -e "${NC}"

@@ -212,11 +212,13 @@ def check_vllm_status():
         pass
     return "🟡 **vLLM Engine:** Loading weights or downloading from HuggingFace (~15GB). Models will become active once download completes!"
 
+PUBLIC_IP = os.getenv("PUBLIC_IP", "77.104.167.149")
+
 # Build Gradio Interface
 with gr.Blocks(title="Apex Enterprise Voice AI - GPU Testbench", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("""
+    gr.Markdown(f"""
     # 🎙️ Apex Enterprise Voice AI - GPU Real-Time Testbench
-    **Instance:** 1x NVIDIA RTX 3090 (24GB VRAM) | **Public IP:** `212.93.107.107`
+    **Instance:** 1x NVIDIA RTX 4060 Ti (16GB VRAM) | **AMD EPYC 7K62** | **Public IP:** `{PUBLIC_IP}`
     """)
 
     with gr.Row():
@@ -237,8 +239,8 @@ with gr.Blocks(title="Apex Enterprise Voice AI - GPU Testbench", theme=gr.themes
                 )
                 emotion_dropdown = gr.Dropdown(
                     label="Emotional Prosody Tag",
-                    choices=["neutral", "empathy", "cheerful", "urgent", "calm"],
-                    value="neutral"
+                    choices=["neutral", "empathy", "cheerful", "urgent", "calm", "whisper in small voice", "excited and fast", "happy", "sad", "angry"],
+                    value="cheerful"
                 )
 
             sys_prompt = gr.Textbox(
