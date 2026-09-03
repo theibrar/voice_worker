@@ -150,12 +150,13 @@ def start_services():
             "--api-key", API_KEY,
             "--gpu-memory-utilization", GPU_MEM_UTIL,
             "--max-model-len", "4096",
-            "--max-num-seqs", "32",              # 32 concurrent requests with continuous batching
-            "--max-num-batched-tokens", "4096",
-            "--quantization", "awq",
+            "--max-num-seqs", "32",
             "--enforce-eager",
             "--trust-remote-code"
         ]
+        if "awq" in LLM_MODEL.lower():
+            vllm_cmd.extend(["--quantization", "awq"])
+
         try:
             p_llm = subprocess.Popen(vllm_cmd, env=env)
             processes.append(p_llm)

@@ -87,6 +87,11 @@ python3 -m pip install --upgrade pip setuptools wheel
 python3 -m pip install -r requirements.txt
 python3 -m pip install llama-cpp-python[server] --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 || true
 
+# Register NVIDIA python libs in system dynamic linker (fixes libcublas.so.12 not found)
+echo "/usr/local/lib/python*/dist-packages/nvidia/*/lib" > /etc/ld.so.conf.d/00-nvidia-python.conf
+find /usr/local/lib/ -name "libcublas.so.12" 2>/dev/null | head -n 1 | xargs -I {} dirname {} >> /etc/ld.so.conf.d/00-nvidia-python.conf || true
+ldconfig 2>/dev/null || true
+
 # 5. Download Neural Model Weights (Kokoro, Parakeet, Qwen)
 echo -e "${GREEN}[5/6] Downloading & Verifying Model Weights...${NC}"
 mkdir -p models/parakeet models/llm

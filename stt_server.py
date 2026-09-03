@@ -34,21 +34,35 @@ app.add_middleware(
 )
 
 import ctypes
+import site
+import glob
 
-# Ensure NVIDIA cuBLAS libraries are in path for CTranslate2
-for p in [
-    "/usr/local/lib/python3.10/dist-packages/nvidia/cublas/lib",
-    "/usr/local/lib/python3.10/dist-packages/nvidia/cudnn/lib"
-]:
-    if os.path.exists(p):
+# Ensure NVIDIA cuBLAS libraries are in path for CTranslate2 across all Python versions
+nvidia_search_paths = []
+for base in site.getsitepackages() + [site.getusersitepackages(), "/usr/local/lib", "/usr/lib"]:
+    if os.path.exists(base):
+        for pattern in ["**/nvidia/cublas/lib", "**/nvidia/cudnn/lib", "**/nvidia/cuda_runtime/lib"]:
+            for match in glob.glob(os.path.join(base, pattern), recursive=True):
+                if match not in nvidia_search_paths:
+                    nvidia_search_paths.append(match)
+
+# Also check standard python directory patterns
+for py_ver in ["python3.10", "python3.11", "python3.12"]:
+    for sub in ["cublas", "cudnn", "cuda_runtime"]:
+        p = f"/usr/local/lib/{py_ver}/dist-packages/nvidia/{sub}/lib"
+        if os.path.exists(p) and p not in nvidia_search_paths:
+            nvidia_search_paths.append(p)
+
+for p in nvidia_search_paths:
+    if p not in os.environ.get("LD_LIBRARY_PATH", ""):
         os.environ["LD_LIBRARY_PATH"] = f"{p}:{os.environ.get('LD_LIBRARY_PATH', '')}"
-        for lib_name in ["libcublasLt.so.12", "libcublas.so.12"]:
-            lib_path = os.path.join(p, lib_name)
-            if os.path.exists(lib_path):
-                try:
-                    ctypes.CDLL(lib_path, mode=ctypes.RTLD_GLOBAL)
-                except Exception:
-                    pass
+    for lib_name in ["libcublasLt.so.12", "libcublas.so.12", "libcudnn.so.9"]:
+        lib_path = os.path.join(p, lib_name)
+        if os.path.exists(lib_path):
+            try:
+                ctypes.CDLL(lib_path, mode=ctypes.RTLD_GLOBAL)
+            except Exception:
+                pass
 
 whisper_model = None
 
@@ -160,14 +174,25 @@ async def transcribe_audio(
             tmp_path = tmp.name
 
         try:
-            segments, info = model.transcribe(
-                tmp_path,
-                beam_size=1, # Greedy search for maximum speed
-                temperature=temperature or 0.0,
-                vad_filter=True, # Built-in VAD to trim silence
-                vad_parameters=dict(min_silence_duration_ms=250),
-            )
-            full_text = " ".join([segment.text.strip() for segment in segments]).strip()
+            try:
+                segments, info = model.transcribe(
+                    tmp_path,
+                    beam_size=1, # Greedy search for maximum speed
+                    temperature=temperature or 0.0,
+                    vad_filter=True, # Built-in VAD to trim silence
+                    vad_parameters=dict(min_silence_duration_ms=250),
+                )
+                full_text = " ".join([segment.text.strip() for segment in segments]).strip()
+            except Exception as trans_err:
+                if "cublas" in str(trans_err).lower() or "cuda" in str(trans_err).lower():
+                    logger.warning(f"CUDA transcription issue ({trans_err}). Switching to high-speed CPU inference on EPYC...")
+                    from faster_whisper import WhisperModel
+                    global whisper_model
+                    whisper_model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
+                    segments, info = whisper_model.transcribe(tmp_path, beam_size=1, temperature=0.0)
+                    full_text = " ".join([segment.text.strip() for segment in segments]).strip()
+                else:
+                    raise trans_err
         finally:
             if os.path.exists(tmp_path):
                 try:
