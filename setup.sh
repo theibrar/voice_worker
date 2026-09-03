@@ -106,9 +106,10 @@ if [ ! -f "models/kokoro-v0_19.onnx" ]; then
     wget -q --show-progress -c https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/kokoro-v0_19.onnx -O models/kokoro-v0_19.onnx
 fi
 
-if [ ! -f "models/voices.bin" ]; then
-    echo "Downloading Kokoro 54-voice pack (28MB)..."
-    wget -q --show-progress -c https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/voices.bin -O models/voices.bin
+# Download Kokoro voice pack with af_heart
+if [ ! -f "models/voices.bin" ] || [ $(wc -c < "models/voices.bin" 2>/dev/null || echo 0) -lt 25000000 ]; then
+    echo "Downloading Kokoro full voice pack with af_heart (voices-v1.0.bin)..."
+    wget -q --show-progress -c https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin -O models/voices.bin || true
 fi
 
 # B. Parakeet TDT 0.6B v3 INT8

@@ -223,7 +223,15 @@ def generate_kokoro_audio_cached(text: str, voice_name: str, speed: float, lang:
     kokoro = get_kokoro()
     if not kokoro:
         raise RuntimeError("Kokoro engine not ready")
-    samples, sr = kokoro.create(text, voice=voice_name, speed=speed, lang=lang)
+    
+    try:
+        samples, sr = kokoro.create(text, voice=voice_name, speed=speed, lang=lang)
+    except Exception as e:
+        if "not found" in str(e).lower() or "voice" in str(e).lower():
+            logger.warning(f"Voice '{voice_name}' not in voices.bin ({e}). Falling back to 'af_bella'...")
+            samples, sr = kokoro.create(text, voice="af_bella", speed=speed, lang=lang)
+        else:
+            raise e
 
     # Apply Volume/Gain control scaling
     if gain != 1.0:
