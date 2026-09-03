@@ -73,6 +73,18 @@ def start_services():
     os.environ["LD_LIBRARY_PATH"] = full_ld_path
     env["LD_LIBRARY_PATH"] = full_ld_path
 
+    # Preload CUDA runtime & cuBLAS globally into process table
+    import ctypes
+    for p in [curun_lib, cublas_lib, cudnn_lib]:
+        if os.path.exists(p):
+            for lib in ["libcudart.so.12", "libcublas.so.12", "libcublasLt.so.12"]:
+                f_path = os.path.join(p, lib)
+                if os.path.exists(f_path):
+                    try:
+                        ctypes.CDLL(f_path, mode=ctypes.RTLD_GLOBAL)
+                    except Exception:
+                        pass
+
     # 1. Start Kokoro-82M TTS Server (Port 8088)
     logger.info("► [1/5] Launching Kokoro-82M Neural TTS Engine (Port 8088)...")
     p_tts = subprocess.Popen([sys.executable, "tts_server.py"], env=env)
@@ -134,10 +146,16 @@ def start_services():
             ]
         try:
             p_llm = subprocess.Popen(llama_cmd, env=env)
-            processes.append(p_llm)
-            logger.success("✓ llama.cpp server spawned with 30 concurrent slots & continuous batching!")
+            time.sleep(2.0)
+            if p_llm.poll() is not None:
+                logger.warning(f"llama.cpp server exited (code {p_llm.returncode}). Automatically falling back to vLLM...")
+                p_llm = None
+            else:
+                processes.append(p_llm)
+                logger.success("✓ llama.cpp server spawned with 30 concurrent slots & continuous batching!")
         except Exception as e:
             logger.warning(f"Could not start llama.cpp server: {e}. Falling back to vLLM...")
+            p_llm = None
 
     if p_llm is None:
         logger.info(f"► [5/5] Launching vLLM Engine ({LLM_MODEL}) on Port 8000...")
