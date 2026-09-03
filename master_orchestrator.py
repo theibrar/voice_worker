@@ -17,7 +17,7 @@ from loguru import logger
 
 API_KEY = os.getenv("GPU_API_KEY", "sk-ibrasoft-gpu-voice")
 LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct-AWQ")
-GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.55")
+GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.50")
 PUBLIC_IP = os.getenv("PUBLIC_IP", "77.104.167.149")
 PORT_VLLM = os.getenv("PORT_VLLM", "45717")
 PORT_TTS = os.getenv("PORT_TTS", "45042")
@@ -51,6 +51,7 @@ def start_services():
     env["GPU_API_KEY"] = API_KEY
     env["VLLM_USE_V1"] = "0"
     env["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+    env["VLLM_USE_FLASHINFER_SAMPLER"] = "0"
     # Minimize CUDA context & PyTorch overhead across all 4 worker processes
     env["CUDA_MODULE_LOADING"] = "LAZY"
     env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -168,7 +169,7 @@ def start_services():
             "--host", "0.0.0.0",
             "--api-key", API_KEY,
             "--gpu-memory-utilization", GPU_MEM_UTIL,
-            "--max-model-len", "4096",
+            "--max-model-len", "2048",
             "--max-num-seqs", "32",
             "--enforce-eager",
             "--trust-remote-code"

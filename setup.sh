@@ -66,7 +66,8 @@ cat <<EOF > .env
 GPU_API_KEY=${DEFAULT_KEY}
 PUBLIC_IP=${PUBLIC_IP}
 LLM_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ
-GPU_MEM_UTIL=0.55
+GPU_MEM_UTIL=0.50
+MAX_MODEL_LEN=2048
 STT_MODEL_SIZE=distil-large-v3
 PORT_VLLM=45717
 PORT_TTS=45042
@@ -75,6 +76,9 @@ PORT_VAD=45810
 PORT_UI=45227
 CUDA_MODULE_LOADING=LAZY
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+VLLM_USE_V1=0
+VLLM_USE_FLASHINFER_SAMPLER=0
+VLLM_WORKER_MULTIPROC_METHOD=spawn
 KOKORO_MODEL_PATH=/root/voice_worker/models/kokoro-v0_19.onnx
 KOKORO_VOICES_PATH=/root/voice_worker/models/voices.bin
 EOF
@@ -173,8 +177,9 @@ EOF
 
 # 7. Launch All Services via tmux
 echo -e "${GREEN}[6/6] Launching All 5 GPU AI Engines in Background...${NC}"
+fuser -k 8000/tcp 8030/tcp 8088/tcp 8090/tcp 7860/tcp 2>/dev/null || true
 tmux kill-session -t voice-worker 2>/dev/null || true
-tmux new-session -d -s voice-worker "python3 master_orchestrator.py"
+tmux new-session -d -s voice-worker "export VLLM_USE_FLASHINFER_SAMPLER=0; export VLLM_USE_V1=0; python3 master_orchestrator.py"
 
 sleep 3
 
