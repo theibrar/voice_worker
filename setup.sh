@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Enterprise Voice AI GPU Node - Automated One-Click Installer
-# Hardware Target: 1x NVIDIA RTX 4060 Ti (16GB VRAM) | AMD EPYC 7K62
-# Public IP: 77.104.167.149
+# Hardware Target: 1x NVIDIA RTX 5060 Ti (16GB VRAM) | Intel Xeon E5-2673 v4
+# Public IP: 184.144.154.180
 # Stack: Parakeet TDT 0.6B INT8 -> Qwen 4B/7B -> Kokoro-82M (+ Silero VAD v5)
 # ==============================================================================
 
@@ -19,9 +19,9 @@ NC='\033[0m'
 echo -e "${CYAN}"
 echo "=============================================================================="
 echo "    🎙️  ENTERPRISE GPU VOICE AI WORKER - AUTOMATED INSTALLER                  "
-echo "    Target GPU : 1x NVIDIA RTX 4060 Ti (16GB VRAM)                            "
-echo "    CPU        : AMD EPYC 7K62 48-Core Processor                              "
-echo "    Public IP  : 77.104.167.149                                               "
+echo "    Target GPU : 1x NVIDIA RTX 5060 Ti (16GB VRAM)                            "
+echo "    CPU        : Intel Xeon E5-2673 v4 (40 vCPUs, 96.5GB RAM)                 "
+echo "    Public IP  : 184.144.154.180                                              "
 echo "    Pipeline   : Parakeet TDT 0.6B -> Qwen3-4B / Qwen2.5 -> Kokoro-82M        "
 echo "=============================================================================="
 echo -e "${NC}"
@@ -55,12 +55,13 @@ apt-get install -y --no-install-recommends \
     python3-pip \
     python3-dev \
     build-essential \
-    libespeak-ng-dev
+    libespeak-ng-dev \
+    libcublas-12-0 || true
 
 # 3. Configure Environment & API Key
 echo -e "${GREEN}[3/6] Setting Up Secure Environment...${NC}"
 DEFAULT_KEY="sk-ibrasoft-gpu-voice"
-PUBLIC_IP="77.104.167.149"
+PUBLIC_IP="184.144.154.180"
 
 cat <<EOF > .env
 GPU_API_KEY=${DEFAULT_KEY}
@@ -69,11 +70,11 @@ LLM_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ
 GPU_MEM_UTIL=0.50
 MAX_MODEL_LEN=2048
 STT_MODEL_SIZE=distil-large-v3
-PORT_VLLM=45717
-PORT_TTS=45042
-PORT_STT=45064
-PORT_VAD=45810
-PORT_UI=45227
+PORT_VLLM=56137
+PORT_TTS=56209
+PORT_STT=56546
+PORT_VAD=56756
+PORT_UI=56081
 CUDA_MODULE_LOADING=LAZY
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 VLLM_USE_V1=0
@@ -91,9 +92,11 @@ python3 -m pip install --upgrade pip setuptools wheel
 python3 -m pip install -r requirements.txt
 python3 -m pip install llama-cpp-python[server] --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 || true
 
-# Register NVIDIA python libs in system dynamic linker (fixes libcublas.so.12 not found)
-echo "/usr/local/lib/python*/dist-packages/nvidia/*/lib" > /etc/ld.so.conf.d/00-nvidia-python.conf
-find /usr/local/lib/ -name "libcublas.so.12" 2>/dev/null | head -n 1 | xargs -I {} dirname {} >> /etc/ld.so.conf.d/00-nvidia-python.conf || true
+# Register NVIDIA python libs directly in /usr/local/lib and system linker (fixes libcublas.so.12)
+find /usr/local/lib/ -name "libcublas*.so*" -exec ln -sf {} /usr/local/lib/ \; 2>/dev/null || true
+find /usr/local/lib/ -name "libcudnn*.so*" -exec ln -sf {} /usr/local/lib/ \; 2>/dev/null || true
+find /usr/local/lib/ -name "libcudart*.so*" -exec ln -sf {} /usr/local/lib/ \; 2>/dev/null || true
+echo "/usr/local/lib" > /etc/ld.so.conf.d/00-local.conf
 ldconfig 2>/dev/null || true
 
 # 5. Download Neural Model Weights (Kokoro, Parakeet, Qwen)
@@ -106,10 +109,11 @@ if [ ! -f "models/kokoro-v0_19.onnx" ]; then
     wget -q --show-progress -c https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/kokoro-v0_19.onnx -O models/kokoro-v0_19.onnx
 fi
 
-# Download Kokoro voice pack with af_heart
+# Download Kokoro matching voices.bin for v0_19
 if [ ! -f "models/voices.bin" ] || [ $(wc -c < "models/voices.bin" 2>/dev/null || echo 0) -lt 25000000 ]; then
-    echo "Downloading Kokoro full voice pack with af_heart (voices-v1.0.bin)..."
-    wget -q --show-progress -c https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin -O models/voices.bin || true
+    echo "Downloading Kokoro matching voices.bin (28MB)..."
+    rm -f models/voices.bin
+    curl -L https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/voices.bin -o models/voices.bin
 fi
 
 # B. Parakeet TDT 0.6B v3 INT8
@@ -148,31 +152,31 @@ echo -e "${GREEN}✓ All model assets downloaded and cached in ./models/${NC}"
 cat <<EOF > ENDPOINTS.txt
 ==============================================================================
    APEX ENTERPRISE GPU VOICE AI CLUSTER - PRODUCTION ENDPOINTS
-   Hardware: 1x NVIDIA RTX 4060 Ti (16GB VRAM) | AMD EPYC 7K62
+   Hardware: 1x NVIDIA RTX 5060 Ti (16GB VRAM) | Intel Xeon E5-2673 v4
 ==============================================================================
 
 Public IP: ${PUBLIC_IP}
 API Key  : ${DEFAULT_KEY}
 
 1. vLLM / LLM OpenAI Engine (Port 8000)
-   Public URL : http://${PUBLIC_IP}:45717/v1
+   Public URL : http://${PUBLIC_IP}:${PORT_VLLM}/v1
    Model      : Qwen3-4B / Qwen2.5-7B-Instruct-AWQ
 
 2. Kokoro-82M Streaming Neural TTS (Port 8088)
-   Public URL : http://${PUBLIC_IP}:45042
-   Voices     : Full 54-voice pack (af_bella, am_michael, etc.)
-   Features   : Free-form style tags, SSML <break>, volume gain, <150ms TTFA
+   Public URL : http://${PUBLIC_IP}:${PORT_TTS}
+   Voices     : Full voice pack (af_bella, am_michael, am_adam, af_sarah, bf_emma)
+   Features   : Free-form style tags, SSML <break>, volume gain, <50ms TTFA
 
 3. Fast Streaming STT Engine (Port 8030)
-   Public URL : http://${PUBLIC_IP}:45064
-   Model      : Parakeet TDT 0.6B / Faster-Whisper distil-large-v3
+   Public URL : http://${PUBLIC_IP}:${PORT_STT}
+   Model      : Faster-Whisper distil-large-v3 (CUDA float16)
 
 4. Silero VAD v5 Controller (Port 8090)
-   Public URL : http://${PUBLIC_IP}:45810
+   Public URL : http://${PUBLIC_IP}:${PORT_VAD}
    Spec       : 16kHz, 512 samples / 32ms frame chunking
 
 5. Gradio Live Interactive Playground (Port 7860)
-   Public URL : http://${PUBLIC_IP}:45227
+   Public URL : http://${PUBLIC_IP}:${PORT_UI}
 ==============================================================================
 EOF
 

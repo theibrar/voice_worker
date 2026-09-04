@@ -18,12 +18,12 @@ from loguru import logger
 API_KEY = os.getenv("GPU_API_KEY", "sk-ibrasoft-gpu-voice")
 LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct-AWQ")
 GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.50")
-PUBLIC_IP = os.getenv("PUBLIC_IP", "77.104.167.149")
-PORT_VLLM = os.getenv("PORT_VLLM", "45717")
-PORT_TTS = os.getenv("PORT_TTS", "45042")
-PORT_STT = os.getenv("PORT_STT", "45064")
-PORT_VAD = os.getenv("PORT_VAD", "45810")
-PORT_UI = os.getenv("PORT_UI", "45227")
+PUBLIC_IP = os.getenv("PUBLIC_IP", "184.144.154.180")
+PORT_VLLM = os.getenv("PORT_VLLM", "56137")
+PORT_TTS = os.getenv("PORT_TTS", "56209")
+PORT_STT = os.getenv("PORT_STT", "56546")
+PORT_VAD = os.getenv("PORT_VAD", "56756")
+PORT_UI = os.getenv("PORT_UI", "56081")
 
 processes = []
 
@@ -42,8 +42,8 @@ signal.signal(signal.SIGTERM, signal_handler)
 def start_services():
     logger.info("==================================================================")
     logger.info("   🎙️  ENTERPRISE GPU VOICE AI STACK - MASTER ORCHESTRATOR         ")
-    logger.info("   Hardware: 1x NVIDIA RTX 4060 Ti (16GB VRAM)                    ")
-    logger.info("   CPU: AMD EPYC 7K62 48-Core Processor                           ")
+    logger.info("   Hardware: 1x NVIDIA RTX 5060 Ti (16GB VRAM)                    ")
+    logger.info("   CPU: Intel Xeon E5-2673 v4 (40 vCPUs, 96.5GB RAM)              ")
     logger.info(f"   Public IP: {PUBLIC_IP}                                          ")
     logger.info("==================================================================")
 

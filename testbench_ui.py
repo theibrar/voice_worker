@@ -212,13 +212,13 @@ def check_vllm_status():
         pass
     return "🟡 **vLLM Engine:** Loading weights or downloading from HuggingFace (~15GB). Models will become active once download completes!"
 
-PUBLIC_IP = os.getenv("PUBLIC_IP", "77.104.167.149")
+PUBLIC_IP = os.getenv("PUBLIC_IP", "184.144.154.180")
 
 # Build Gradio Interface
 with gr.Blocks(title="Apex Enterprise Voice AI - GPU Testbench", theme=gr.themes.Soft()) as demo:
     gr.Markdown(f"""
     # 🎙️ Apex Enterprise Voice AI - GPU Real-Time Testbench
-    **Instance:** 1x NVIDIA RTX 4060 Ti (16GB VRAM) | **AMD EPYC 7K62** | **Public IP:** `{PUBLIC_IP}`
+    **Instance:** 1x NVIDIA RTX 5060 Ti (16GB VRAM) | **Intel Xeon E5-2673 v4** | **Public IP:** `{PUBLIC_IP}`
     """)
 
     with gr.Row():
