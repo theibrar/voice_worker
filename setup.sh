@@ -103,17 +103,24 @@ ldconfig 2>/dev/null || true
 echo -e "${GREEN}[5/6] Downloading & Verifying Model Weights...${NC}"
 mkdir -p models/parakeet models/llm
 
-# A. Kokoro-82M ONNX & Voices
-if [ ! -f "models/kokoro-v0_19.onnx" ]; then
-    echo "Downloading Kokoro-82M ONNX weights (320MB)..."
-    wget -q --show-progress -c https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/kokoro-v0_19.onnx -O models/kokoro-v0_19.onnx
+# A. Kokoro-82M ONNX & Voices (v1.0 Multi-Language: 54 Voices)
+if [ ! -f "models/kokoro-v1.0.onnx" ]; then
+    echo "Downloading Kokoro-82M v1.0 ONNX Multi-Language Model (320MB)..."
+    curl -L https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx -o models/kokoro-v1.0.onnx || true
 fi
 
-# Download Kokoro matching voices.bin for v0_19
-if [ ! -f "models/voices.bin" ] || [ $(wc -c < "models/voices.bin" 2>/dev/null || echo 0) -lt 25000000 ]; then
-    echo "Downloading Kokoro matching voices.bin (28MB)..."
-    rm -f models/voices.bin
-    curl -L https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/voices.bin -o models/voices.bin
+if [ ! -f "models/voices-v1.0.bin" ] || [ $(wc -c < "models/voices-v1.0.bin" 2>/dev/null || echo 0) -lt 25000000 ]; then
+    echo "Downloading Kokoro 54-voice multi-language pack (voices-v1.0.bin)..."
+    rm -f models/voices-v1.0.bin
+    curl -L https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin -o models/voices-v1.0.bin || true
+fi
+
+# Fallback v0_19 weights
+if [ ! -f "models/kokoro-v0_19.onnx" ]; then
+    curl -L https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/kokoro-v0_19.onnx -o models/kokoro-v0_19.onnx || true
+fi
+if [ ! -f "models/voices.bin" ]; then
+    curl -L https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/voices.bin -o models/voices.bin || true
 fi
 
 # B. Parakeet TDT 0.6B v3 INT8

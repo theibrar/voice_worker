@@ -46,13 +46,20 @@ from pydantic import BaseModel
 from loguru import logger
 
 API_KEY = os.getenv("GPU_API_KEY", "sk-ibrasoft-gpu-voice")
-MODEL_PATH = os.getenv("KOKORO_MODEL_PATH", "/app/models/kokoro-v0_19.onnx")
-VOICES_PATH = os.getenv("KOKORO_VOICES_PATH", "/app/models/voices.bin")
+MODEL_PATH = os.getenv("KOKORO_MODEL_PATH", "")
+VOICES_PATH = os.getenv("KOKORO_VOICES_PATH", "")
 
-# Fallback paths for local directory
-if not os.path.exists(MODEL_PATH):
+# Auto-detect v1.0 full multi-language model if present
+v1_model = os.path.join(os.path.dirname(__file__), "models", "kokoro-v1.0.onnx")
+v1_voices = os.path.join(os.path.dirname(__file__), "models", "voices-v1.0.bin")
+
+if os.path.exists(v1_model) and os.path.exists(v1_voices):
+    MODEL_PATH = v1_model
+    VOICES_PATH = v1_voices
+
+if not MODEL_PATH or not os.path.exists(MODEL_PATH):
     MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "kokoro-v0_19.onnx")
-if not os.path.exists(VOICES_PATH):
+if not VOICES_PATH or not os.path.exists(VOICES_PATH):
     VOICES_PATH = os.path.join(os.path.dirname(__file__), "models", "voices.bin")
 
 app = FastAPI(title="Kokoro Neural Streaming TTS Engine", version="2.5.0")

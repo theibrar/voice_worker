@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apex Voice AI - Standalone STT & TTS Tester</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0b0f19;
+            color: #f3f4f6;
+        }
+        .glass-panel {
+            background: rgba(17, 24, 39, 0.75);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <!-- Header Navigation -->
+    <header class="glass-panel border-b border-gray-800 px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+            <div class="w-9 h-9 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 font-bold">
+                <i class="fa-solid fa-microphone-lines text-lg"></i>
+            </div>
+            <div>
+                <h1 class="text-base font-bold text-white">Apex Standalone Audio Test Studio</h1>
+                <p class="text-xs text-gray-400">Test Faster-Whisper STT & Kokoro TTS Individually</p>
+            </div>
+        </div>
+
+        <!-- Tab Switching Buttons -->
+        <div class="flex bg-gray-900/80 p-1 rounded-xl border border-gray-800">
+            <button id="tabSttBtn" onclick="switchTab('stt')" class="px-4 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white transition flex items-center gap-2">
+                <i class="fa-solid fa-microphone"></i> 1. Test STT (Speech-to-Text)
+            </button>
+            <button id="tabTtsBtn" onclick="switchTab('tts')" class="px-4 py-1.5 rounded-lg text-xs font-semibold text-gray-400 hover:text-white transition flex items-center gap-2">
+                <i class="fa-solid fa-volume-high"></i> 2. Test Kokoro TTS (Text-to-Speech)
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 max-w-4xl w-full mx-auto p-6 overflow-y-auto">
+        
+        <!-- SECTION 1: STT TESTER -->
+        <div id="sttSection" class="space-y-6">
+            <div class="glass-panel p-6 rounded-2xl border border-gray-800">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 class="text-base font-bold text-white flex items-center gap-2">
+                            🎙️ Faster-Whisper STT Transcriber
+                            <span class="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full">Port 56546</span>
+                        </h2>
+                        <p class="text-xs text-gray-400">Record your microphone or upload an audio file to test speech recognition speed and accuracy.</p>
+                    </div>
+                </div>
+
+                <!-- Mic Recording Controls -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div class="glass-panel p-4 rounded-xl border border-gray-800/80 text-center">
+                        <span class="text-xs text-gray-400 block mb-2 font-medium">Option A: Live Microphone Record</span>
+                        <div class="flex items-center justify-center space-x-3">
+                            <button id="micRecordBtn" onclick="toggleMicRecord()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-4 py-2 rounded-xl text-xs flex items-center gap-2 transition">
+                                <i class="fa-solid fa-circle text-red-400 animate-pulse"></i> Start Recording
+                            </button>
+                            <span id="recordingTimer" class="text-xs font-mono text-gray-400 hidden">00:00</span>
+                        </div>
+                    </div>
+
+                    <div class="glass-panel p-4 rounded-xl border border-gray-800/80 text-center">
+                        <span class="text-xs text-gray-400 block mb-2 font-medium">Option B: Upload Audio File (.wav, .mp3, .m4a)</span>
+                        <input type="file" id="sttFileInput" accept="audio/*" class="text-xs text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-600/20 file:text-indigo-300 hover:file:bg-indigo-600/30 cursor-pointer">
+                    </div>
+                </div>
+
+                <button onclick="runStt()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 transition shadow-lg shadow-emerald-600/20">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Transcribe Audio Now
+                </button>
+            </div>
+
+            <!-- STT Results Display -->
+            <div id="sttResultCard" class="hidden glass-panel p-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/5">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider">Transcription Results</span>
+                    <span id="sttLatencyBadge" class="text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2.5 py-1 rounded-full font-mono">0.0 ms</span>
+                </div>
+                <div id="sttTextOutput" class="text-sm text-white font-medium bg-gray-900/80 p-4 rounded-xl border border-gray-800 leading-relaxed">
+                    Transcribing...
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION 2: TTS TESTER -->
+        <div id="ttsSection" class="hidden space-y-6">
+            <div class="glass-panel p-6 rounded-2xl border border-gray-800">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 class="text-base font-bold text-white flex items-center gap-2">
+                            🗣️ Kokoro-82M Neural Speech Synthesizer
+                            <span class="text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded-full">Port 56209 (GPU)</span>
+                        </h2>
+                        <p class="text-xs text-gray-400">Type any text phrase, choose a voice and emotion tag, and test neural speech generation speed.</p>
+                    </div>
+                </div>
+
+                <!-- Input Phrase -->
+                <div class="mb-4">
+                    <label class="block text-xs font-semibold text-gray-300 mb-1">Text Phrase to Speak</label>
+                    <textarea id="ttsTextInput" rows="3" class="w-full bg-gray-900 border border-gray-700 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-indigo-500">Hello! I am Kokoro, your enterprise AI neural voice assistant running on NVIDIA GPU hardware. How can I help you today?</textarea>
+                </div>
+
+                <!-- Controls Grid -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-300 mb-1">Neural Voice</label>
+                        <select id="ttsVoiceSelect" class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+                            <option value="af_bella">af_bella (Female - Professional)</option>
+                            <option value="am_michael" selected>am_michael (Male - Warm)</option>
+                            <option value="af_sarah">af_sarah (Female - Energetic)</option>
+                            <option value="am_adam">am_adam (Male - Deep)</option>
+                            <option value="bf_emma">bf_emma (British Female)</option>
+                            <option value="bf_isabella">bf_isabella (Female - Expressive)</option>
+                            <option value="bm_george">bm_george (British Male)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-300 mb-1">Emotional & Natural Language Style Tag</label>
+                        <select id="ttsEmotionSelect" class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+                            <option value="[cheerful]">cheerful (Upbeat)</option>
+                            <option value="[calm]" selected>calm (Smooth & Professional)</option>
+                            <option value="[empathy]">empathy (Warm Support)</option>
+                            <option value="[urgent]">urgent (Direct & Fast)</option>
+                            <option value="[whisper in small voice]">whisper in small voice (Soft & Quiet)</option>
+                            <option value="[excited and fast]">excited and fast (Energetic)</option>
+                            <option value="[happy]">happy (Positive)</option>
+                            <option value="[sad]">sad (Low & Slow)</option>
+                            <option value="[angry]">angry (Intense)</option>
+                            <option value="[sarcastic]">sarcastic</option>
+                            <option value="[neutral]">neutral (Standard)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-300 mb-1">Speaking Speed (<span id="speedVal">1.0</span>x)</label>
+                        <input type="range" id="ttsSpeedRange" min="0.8" max="1.4" step="0.05" value="1.0" oninput="document.getElementById('speedVal').innerText=this.value" class="w-full mt-2">
+                    </div>
+                </div>
+
+                <button onclick="runTts()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 transition shadow-lg shadow-indigo-600/20">
+                    <i class="fa-solid fa-play"></i> Synthesize & Play Voice Audio
+                </button>
+            </div>
+
+            <!-- TTS Results Display -->
+            <div id="ttsResultCard" class="hidden glass-panel p-6 rounded-2xl border border-indigo-500/30 bg-indigo-500/5">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-xs font-bold text-indigo-400 uppercase tracking-wider">Generated Voice Audio</span>
+                    <span id="ttsLatencyBadge" class="text-xs bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 px-2.5 py-1 rounded-full font-mono">0.0 ms</span>
+                </div>
+                
+                <audio id="ttsAudioPlayer" controls class="w-full mt-2 rounded-lg"></audio>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- JavaScript Logic -->
+    <script>
+        const STT_URL = "http://184.144.154.180:56546";
+        const TTS_URL = "http://184.144.154.180:56209";
+        const API_KEY = "sk-ibrasoft-gpu-voice";
+
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+
+        function switchTab(tab) {
+            const sttSec = document.getElementById('sttSection');
+            const ttsSec = document.getElementById('ttsSection');
+            const sttBtn = document.getElementById('tabSttBtn');
+            const ttsBtn = document.getElementById('tabTtsBtn');
+
+            if (tab === 'stt') {
+                sttSec.classList.remove('hidden');
+                ttsSec.classList.add('hidden');
+                sttBtn.className = "px-4 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white transition flex items-center gap-2";
+                ttsBtn.className = "px-4 py-1.5 rounded-lg text-xs font-semibold text-gray-400 hover:text-white transition flex items-center gap-2";
+            } else {
+                ttsSec.classList.remove('hidden');
+                sttSec.classList.add('hidden');
+                ttsBtn.className = "px-4 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white transition flex items-center gap-2";
+                sttBtn.className = "px-4 py-1.5 rounded-lg text-xs font-semibold text-gray-400 hover:text-white transition flex items-center gap-2";
+            }
+        }
+
+        // Mic Recording Logic
+        async function toggleMicRecord() {
+            const btn = document.getElementById('micRecordBtn');
+            if (!isRecording) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+                    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                    mediaRecorder.start();
+                    isRecording = true;
+                    btn.innerHTML = `<i class="fa-solid fa-square text-white"></i> Stop Recording`;
+                    btn.className = "bg-red-600 hover:bg-red-500 text-white font-medium px-4 py-2 rounded-xl text-xs flex items-center gap-2 transition";
+                } catch (err) {
+                    alert("Microphone Access Error: " + err.message);
+                }
+            } else {
+                mediaRecorder.stop();
+                isRecording = false;
+                btn.innerHTML = `<i class="fa-solid fa-circle text-red-400 animate-pulse"></i> Start Recording`;
+                btn.className = "bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-4 py-2 rounded-xl text-xs flex items-center gap-2 transition";
+                
+                mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    window.recordedBlob = audioBlob;
+                    alert("Audio Recorded Successfully! Click 'Transcribe Audio Now' to test STT.");
+                };
+            }
+        }
+
+        // Run STT Transcription
+        async function runStt() {
+            const resultCard = document.getElementById('sttResultCard');
+            const textOutput = document.getElementById('sttTextOutput');
+            const latencyBadge = document.getElementById('sttLatencyBadge');
+            const fileInput = document.getElementById('sttFileInput');
+
+            let blobToUpload = window.recordedBlob;
+            if (fileInput.files.length > 0) {
+                blobToUpload = fileInput.files[0];
+            }
+
+            if (!blobToUpload) {
+                alert("Please record microphone audio or upload an audio file first!");
+                return;
+            }
+
+            resultCard.classList.remove('hidden');
+            textOutput.innerText = "Transcribing speech on Faster-Whisper GPU...";
+            latencyBadge.innerText = "Processing...";
+
+            const formData = new FormData();
+            formData.append("file", blobToUpload, "speech.wav");
+
+            const t0 = performance.now();
+            try {
+                // Try /transcribe endpoint first
+                let res = await fetch(`${STT_URL}/transcribe`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${API_KEY}` },
+                    body: formData
+                });
+
+                if (!res.ok) {
+                    // Fallback to /v1/audio/transcriptions
+                    const formData2 = new FormData();
+                    formData2.append("file", blobToUpload, "speech.wav");
+                    res = await fetch(`${STT_URL}/v1/audio/transcriptions`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${API_KEY}` },
+                        body: formData2
+                    });
+                }
+
+                const t1 = performance.now();
+                const latency = (t1 - t0).toFixed(1);
+
+                if (res.ok) {
+                    const data = await res.json();
+                    const transcribedText = data.text || data.transcription || JSON.stringify(data);
+                    textOutput.innerHTML = `"${transcribedText}"`;
+                    latencyBadge.innerText = `${latency} ms STT Latency`;
+                } else {
+                    const errText = await res.text();
+                    textOutput.innerText = `STT Error (${res.status}): ${errText}`;
+                }
+            } catch (err) {
+                textOutput.innerText = `Fetch Error: ${err.message}`;
+            }
+        }
+
+        // Run TTS Synthesis
+        async function runTts() {
+            const resultCard = document.getElementById('ttsResultCard');
+            const audioPlayer = document.getElementById('ttsAudioPlayer');
+            const latencyBadge = document.getElementById('ttsLatencyBadge');
+
+            const rawText = document.getElementById('ttsTextInput').value.trim();
+            const voice = document.getElementById('ttsVoiceSelect').value;
+            const emotion = document.getElementById('ttsEmotionSelect').value;
+            const speed = parseFloat(document.getElementById('ttsSpeedRange').value);
+
+            if (!rawText) return;
+
+            const fullText = `${emotion} ${rawText}`;
+            resultCard.classList.remove('hidden');
+            latencyBadge.innerText = "Synthesizing...";
+
+            const t0 = performance.now();
+            try {
+                const res = await fetch(`${TTS_URL}/synthesize`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        text: fullText,
+                        voice: voice,
+                        speed: speed
+                    })
+                });
+
+                const t1 = performance.now();
+                const latency = (t1 - t0).toFixed(1);
+
+                if (res.ok) {
+                    const blob = await res.blob();
+                    const audioUrl = URL.createObjectURL(blob);
+                    audioPlayer.src = audioUrl;
+                    audioPlayer.play();
+                    latencyBadge.innerText = `${latency} ms TTS GPU Synthesis`;
+                } else {
+                    const errText = await res.text();
+                    alert(`TTS Error (${res.status}): ${errText}`);
+                }
+            } catch (err) {
+                alert(`Fetch Exception: ${err.message}`);
+            }
+        }
+    </script>
+</body>
+</html>
