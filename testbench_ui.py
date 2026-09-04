@@ -215,7 +215,7 @@ def check_vllm_status():
 PUBLIC_IP = os.getenv("PUBLIC_IP", "184.144.154.180")
 
 # Build Gradio Interface
-with gr.Blocks(title="Apex Enterprise Voice AI - GPU Testbench", theme=gr.themes.Soft()) as demo:
+with gr.Blocks(title="Apex Enterprise Voice AI - GPU Testbench") as demo:
     gr.Markdown(f"""
     # 🎙️ Apex Enterprise Voice AI - GPU Real-Time Testbench
     **Instance:** 1x NVIDIA RTX 5060 Ti (16GB VRAM) | **Intel Xeon E5-2673 v4** | **Public IP:** `{PUBLIC_IP}`
@@ -296,5 +296,8 @@ with gr.Blocks(title="Apex Enterprise Voice AI - GPU Testbench", theme=gr.themes
     )
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860, share=True)
+    try:
+        demo.launch(server_name="0.0.0.0", server_port=7860, share=False)
+    except Exception:
+        demo.launch(server_name="0.0.0.0", server_port=7860)
 

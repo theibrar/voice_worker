@@ -46,21 +46,48 @@ from pydantic import BaseModel
 from loguru import logger
 
 API_KEY = os.getenv("GPU_API_KEY", "sk-ibrasoft-gpu-voice")
-MODEL_PATH = os.getenv("KOKORO_MODEL_PATH", "")
-VOICES_PATH = os.getenv("KOKORO_VOICES_PATH", "")
+# Model Path Resolution & Auto-Downloader
+models_dir = os.path.join(os.path.dirname(__file__), "models")
+os.makedirs(models_dir, exist_ok=True)
 
-# Auto-detect v1.0 full multi-language model if present
-v1_model = os.path.join(os.path.dirname(__file__), "models", "kokoro-v1.0.onnx")
-v1_voices = os.path.join(os.path.dirname(__file__), "models", "voices-v1.0.bin")
+v1_model = os.path.join(models_dir, "kokoro-v1.0.onnx")
+v1_voices = os.path.join(models_dir, "voices-v1.0.bin")
+v019_model = os.path.join(models_dir, "kokoro-v0_19.onnx")
+v019_voices = os.path.join(models_dir, "voices.bin")
 
-if os.path.exists(v1_model) and os.path.exists(v1_voices):
-    MODEL_PATH = v1_model
-    VOICES_PATH = v1_voices
+def ensure_model_files():
+    import urllib.request
+    
+    # 1. Prefer v1.0 model & 54-voice pack if present and complete
+    if os.path.exists(v1_model) and os.path.exists(v1_voices) and os.path.getsize(v1_voices) > 20000000:
+        return v1_model, v1_voices
+        
+    # 2. Check if v0.19 model is present
+    if os.path.exists(v019_model) and os.path.exists(v019_voices) and os.path.getsize(v019_voices) > 5000000:
+        return v019_model, v019_voices
+        
+    # 3. Auto-download v1.0 multi-language model assets if missing
+    logger.info("⚡ Auto-downloading Kokoro-82M v1.0 ONNX model & 54-voice pack...")
+    url_model = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
+    url_voices = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
 
-if not MODEL_PATH or not os.path.exists(MODEL_PATH):
-    MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "kokoro-v0_19.onnx")
-if not VOICES_PATH or not os.path.exists(VOICES_PATH):
-    VOICES_PATH = os.path.join(os.path.dirname(__file__), "models", "voices.bin")
+    try:
+        if not os.path.exists(v1_model):
+            logger.info("   • Downloading kokoro-v1.0.onnx (320 MB)...")
+            urllib.request.urlretrieve(url_model, v1_model)
+        if not os.path.exists(v1_voices) or os.path.getsize(v1_voices) < 20000000:
+            logger.info("   • Downloading voices-v1.0.bin (27 MB)...")
+            urllib.request.urlretrieve(url_voices, v1_voices)
+        return v1_model, v1_voices
+    except Exception as e:
+        logger.warning(f"Auto-download notice: {e}")
+        if os.path.exists(v019_model) and os.path.exists(v019_voices):
+            return v019_model, v019_voices
+        raise e
+
+MODEL_PATH, VOICES_PATH = ensure_model_files()
+logger.info(f"Using Kokoro Model: {MODEL_PATH}")
+logger.info(f"Using Kokoro Voices: {VOICES_PATH}")
 
 app = FastAPI(title="Kokoro Neural Streaming TTS Engine", version="2.5.0")
 
@@ -231,12 +258,44 @@ def generate_kokoro_audio_cached(text: str, voice_name: str, speed: float, lang:
     if not kokoro:
         raise RuntimeError("Kokoro engine not ready")
     
+    # Normalize language codes for espeak-ng backend compatibility
+    lang_code = (lang or "en-us").lower().strip()
+    LANG_MAP = {
+        "hi-in": "hi",
+        "hi": "hi",
+        "h": "hi",
+        "ja-jp": "ja",
+        "ja": "ja",
+        "j": "ja",
+        "zh-cn": "zh",
+        "zh": "zh",
+        "z": "zh",
+        "es-es": "es",
+        "es": "es",
+        "e": "es",
+        "fr-fr": "fr-fr",
+        "fr": "fr-fr",
+        "f": "fr-fr",
+        "it-it": "it",
+        "it": "it",
+        "i": "it",
+        "en-gb": "en-gb",
+        "b": "en-gb",
+        "en-us": "en-us",
+        "a": "en-us"
+    }
+    target_lang = LANG_MAP.get(lang_code, lang_code)
+    
     try:
-        samples, sr = kokoro.create(text, voice=voice_name, speed=speed, lang=lang)
+        samples, sr = kokoro.create(text, voice=voice_name, speed=speed, lang=target_lang)
     except Exception as e:
-        if "not found" in str(e).lower() or "voice" in str(e).lower():
+        err_msg = str(e).lower()
+        if "not found" in err_msg or "voice" in err_msg:
             logger.warning(f"Voice '{voice_name}' not in voices.bin ({e}). Falling back to 'af_bella'...")
-            samples, sr = kokoro.create(text, voice="af_bella", speed=speed, lang=lang)
+            samples, sr = kokoro.create(text, voice="af_bella", speed=speed, lang=target_lang)
+        elif "espeak" in err_msg or "language" in err_msg:
+            logger.warning(f"Language '{target_lang}' not supported by espeak ({e}). Falling back to 'en-us'...")
+            samples, sr = kokoro.create(text, voice=voice_name, speed=speed, lang="en-us")
         else:
             raise e
 

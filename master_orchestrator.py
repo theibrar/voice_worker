@@ -196,11 +196,13 @@ def start_services():
     logger.success("==================================================================\n")
 
     # Keep orchestrator alive
+    active_processes = list(processes)
     while True:
         time.sleep(5)
-        for p in processes:
+        for p in list(active_processes):
             if p.poll() is not None:
                 logger.warning(f"Process {p.pid} exited with code {p.returncode}")
+                active_processes.remove(p)
 
 if __name__ == "__main__":
     start_services()

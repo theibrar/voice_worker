@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apex vLLM High-Speed AI Chat Testbench</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Marked.js for Markdown -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Highlight.js for Code Highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0b0f19;
+            color: #f3f4f6;
+        }
+        code, pre {
+            font-family: 'Fira Code', monospace;
+        }
+        .glass-panel {
+            background: rgba(17, 24, 39, 0.75);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .chat-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .chat-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .chat-scroll::-webkit-scrollbar-thumb {
+            background: #374151;
+            border-radius: 3px;
+        }
+        .typing-cursor::after {
+            content: '▋';
+            display: inline-block;
+            vertical-align: baseline;
+            animation: blink 1s infinite;
+            color: #6366f1;
+            margin-left: 2px;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+        .prose pre {
+            background-color: #111827 !important;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .prose code {
+            color: #a5b4fc;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <!-- Top Navigation Bar -->
+    <header class="glass-panel border-b border-gray-800 px-6 py-3.5 flex items-center justify-between z-10">
+        <div class="flex items-center space-x-3">
+            <div class="w-9 h-9 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 font-bold">
+                <i class="fa-solid fa-bolt text-lg"></i>
+            </div>
+            <div>
+                <h1 class="text-base font-bold text-white flex items-center gap-2">
+                    Apex vLLM AI Chat Studio
+                    <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">AWQ 4-Bit</span>
+                </h1>
+                <p class="text-xs text-gray-400">High-Performance Real-Time Token Streaming Testbench</p>
+            </div>
+        </div>
+
+        <!-- Connection Status & Controls -->
+        <div class="flex items-center space-x-4">
+            <div id="statusPill" class="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span id="statusText">vLLM Server Connected</span>
+            </div>
+
+            <button onclick="toggleSettings()" class="px-3 py-1.5 text-xs font-medium text-gray-300 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg transition flex items-center gap-2">
+                <i class="fa-solid fa-gear"></i> Server Settings
+            </button>
+            <button onclick="clearChat()" class="px-3 py-1.5 text-xs font-medium text-gray-300 bg-gray-800 hover:bg-red-500/20 hover:text-red-300 border border-gray-700 hover:border-red-500/30 rounded-lg transition flex items-center gap-2">
+                <i class="fa-solid fa-trash-can"></i> Clear Chat
+            </button>
+        </div>
+    </header>
+
+    <!-- Slide-out Server Settings Panel -->
+    <div id="settingsPanel" class="hidden glass-panel border-b border-gray-800 px-6 py-4 bg-gray-900/90 text-sm">
+        <div class="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 mb-1">Base Endpoint URL</label>
+                <input id="baseUrl" type="text" value="http://184.144.154.180:56137/v1" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 mb-1">API Key</label>
+                <input id="apiKey" type="password" value="sk-ibrasoft-gpu-voice" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 mb-1">Served Model Name</label>
+                <input id="modelName" type="text" value="Qwen/Qwen2.5-7B-Instruct-AWQ" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500">
+            </div>
+            <div class="flex items-end space-x-2">
+                <button onclick="testConnection()" class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition">
+                    Test & Save Config
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Chat Container -->
+    <div class="flex-1 flex flex-col max-w-5xl w-full mx-auto p-4 md:p-6 overflow-hidden">
+        
+        <!-- Live Performance Metrics Header -->
+        <div class="grid grid-cols-3 gap-3 mb-4 text-xs">
+            <div class="glass-panel p-3 rounded-xl border border-gray-800 flex items-center justify-between">
+                <div>
+                    <span class="text-gray-400 block text-[10px] uppercase font-semibold">First-Token Latency (TTFT)</span>
+                    <span id="metricTtft" class="text-lg font-bold text-indigo-400">0.0 ms</span>
+                </div>
+                <i class="fa-solid fa-stopwatch text-gray-600 text-lg"></i>
+            </div>
+            <div class="glass-panel p-3 rounded-xl border border-gray-800 flex items-center justify-between">
+                <div>
+                    <span class="text-gray-400 block text-[10px] uppercase font-semibold">Generation Speed</span>
+                    <span id="metricSpeed" class="text-lg font-bold text-emerald-400">0.0 tok/s</span>
+                </div>
+                <i class="fa-solid fa-gauge-high text-gray-600 text-lg"></i>
+            </div>
+            <div class="glass-panel p-3 rounded-xl border border-gray-800 flex items-center justify-between">
+                <div>
+                    <span class="text-gray-400 block text-[10px] uppercase font-semibold">Total Generated Tokens</span>
+                    <span id="metricTokens" class="text-lg font-bold text-amber-400">0 tok</span>
+                </div>
+                <i class="fa-solid fa-coins text-gray-600 text-lg"></i>
+            </div>
+        </div>
+
+        <!-- Chat History Window -->
+        <div id="chatHistory" class="flex-1 overflow-y-auto chat-scroll space-y-4 pr-2 mb-4">
+            <!-- Welcome System Banner -->
+            <div class="glass-panel p-5 rounded-2xl border border-indigo-500/20 bg-indigo-500/5 text-sm text-gray-300">
+                <div class="flex items-center space-x-3 mb-2">
+                    <span class="text-xl">🚀</span>
+                    <h2 class="font-bold text-white text-base">vLLM Inference Engine Online</h2>
+                </div>
+                <p class="text-gray-400 leading-relaxed text-xs">
+                    Connected to <code class="bg-gray-800 px-1.5 py-0.5 rounded text-indigo-300">Qwen/Qwen2.5-7B-Instruct-AWQ</code> running on 1x NVIDIA RTX 5060 Ti (16GB VRAM). Type a message below or click a quick prompt to test real-time token streaming.
+                </p>
+                <!-- Quick Preset Prompts -->
+                <div class="mt-4 flex flex-wrap gap-2">
+                    <button onclick="usePreset('Explain how GPU KV-cache memory management works in 2 short paragraphs.')" class="bg-gray-800/80 hover:bg-indigo-600/30 hover:border-indigo-500/50 border border-gray-700 text-gray-300 px-3 py-1.5 rounded-lg text-xs transition">
+                        ⚡ Explain GPU KV-Cache
+                    </button>
+                    <button onclick="usePreset('Write a high-performance Python FastAPI server for audio streaming with WebSockets.')" class="bg-gray-800/80 hover:bg-indigo-600/30 hover:border-indigo-500/50 border border-gray-700 text-gray-300 px-3 py-1.5 rounded-lg text-xs transition">
+                        🐍 FastAPI Audio Server Code
+                    </button>
+                    <button onclick="usePreset('Act as a senior AI voice solutions consultant for IbraSoft. Summarize our core capabilities in 3 bullet points.')" class="bg-gray-800/80 hover:bg-indigo-600/30 hover:border-indigo-500/50 border border-gray-700 text-gray-300 px-3 py-1.5 rounded-lg text-xs transition">
+                        🎙️ IbraSoft Voice Capabilities
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Input Box & Controls -->
+        <div class="relative glass-panel rounded-2xl p-2 border border-gray-800 focus-within:border-indigo-500/60 transition">
+            <textarea id="userInput" rows="2" placeholder="Type your prompt here... (Shift + Enter for line break)" 
+                class="w-full bg-transparent text-sm text-white placeholder-gray-500 px-3 py-2 focus:outline-none resize-none"
+                onkeydown="handleKeyDown(event)"></textarea>
+            
+            <div class="flex items-center justify-between border-t border-gray-800/60 pt-2 px-2">
+                <div class="flex items-center space-x-4 text-xs text-gray-400">
+                    <label class="flex items-center space-x-1.5 cursor-pointer">
+                        <input id="streamToggle" type="checkbox" checked class="rounded bg-gray-800 border-gray-700 text-indigo-600 focus:ring-0">
+                        <span>Streaming Mode</span>
+                    </label>
+                    <span class="text-gray-600">|</span>
+                    <span>Max Tokens: <b>512</b></span>
+                </div>
+
+                <button id="sendBtn" onclick="sendMessage()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-4 py-1.5 rounded-xl text-xs flex items-center space-x-2 transition shadow-lg shadow-indigo-600/20">
+                    <span>Send</span>
+                    <i class="fa-solid fa-paper-plane text-xs"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Logic -->
+    <script>
+        let chatMessages = [];
+        let isGenerating = false;
+
+        // Configure Marked Renderer
+        marked.setOptions({
+            highlight: function(code, lang) {
+                if (lang && hljs.getLanguage(lang)) {
+                    return hljs.highlight(code, { language: lang }).value;
+                }
+                return hljs.highlightAuto(code).value;
+            },
+            breaks: true
+        });
+
+        function toggleSettings() {
+            const panel = document.getElementById('settingsPanel');
+            panel.classList.toggle('hidden');
+        }
+
+        function usePreset(text) {
+            document.getElementById('userInput').value = text;
+            sendMessage();
+        }
+
+        function clearChat() {
+            chatMessages = [];
+            document.getElementById('chatHistory').innerHTML = `
+                <div class="glass-panel p-4 rounded-xl border border-gray-800 text-center text-xs text-gray-400">
+                    Chat cleared. Send a new prompt to test vLLM token generation.
+                </div>
+            `;
+            document.getElementById('metricTtft').innerText = '0.0 ms';
+            document.getElementById('metricSpeed').innerText = '0.0 tok/s';
+            document.getElementById('metricTokens').innerText = '0 tok';
+        }
+
+        function handleKeyDown(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        }
+
+        async function testConnection() {
+            const baseUrl = document.getElementById('baseUrl').value.trim();
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const statusText = document.getElementById('statusText');
+            const statusPill = document.getElementById('statusPill');
+
+            statusText.innerText = 'Checking...';
+            try {
+                const res = await fetch(`${baseUrl}/models`, {
+                    headers: { 'Authorization': `Bearer ${apiKey}` }
+                });
+                if (res.ok) {
+                    statusText.innerText = 'vLLM Server Connected';
+                    statusPill.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium';
+                } else {
+                    statusText.innerText = 'Connection Error (' + res.status + ')';
+                    statusPill.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-medium';
+                }
+            } catch (err) {
+                statusText.innerText = 'Server Offline';
+                statusPill.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-medium';
+            }
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('userInput');
+            const userText = input.value.trim();
+            if (!userText || isGenerating) return;
+
+            input.value = '';
+            isGenerating = true;
+            document.getElementById('sendBtn').disabled = true;
+
+            // Append User Message
+            chatMessages.push({ role: 'user', content: userText });
+            appendUserBubble(userText);
+
+            // Create Assistant Bubble Wrapper
+            const aiBubbleId = 'ai-bubble-' + Date.now();
+            appendAiBubble(aiBubbleId);
+
+            const baseUrl = document.getElementById('baseUrl').value.trim();
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const modelName = document.getElementById('modelName').value.trim();
+            const isStream = document.getElementById('streamToggle').checked;
+
+            const aiBubbleElem = document.getElementById(aiBubbleId);
+            const contentDiv = aiBubbleElem.querySelector('.ai-content');
+
+            let fullText = "";
+            let tokenCount = 0;
+            let t0 = performance.now();
+            let ttft = 0;
+
+            try {
+                const response = await fetch(`${baseUrl}/chat/completions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: modelName,
+                        messages: [
+                            { role: 'system', content: `You are an elite, warm, highly human voice agent for IbraSoft. 
+You speak naturally like a real human customer specialist on a phone call.
+STRICT VOICE RULES:
+1. Always start your response with a natural style/emotion tag in brackets, such as [cheerful], [calm], [whisper in small voice], [excited and fast], [empathy], or [urgent].
+2. Use short spoken sentences (1-2 sentences maximum).
+3. Use natural human speech markers like <break time="300ms"/> for pauses, or (sighs), (laughs) for warmth when appropriate.
+4. Never use markdown lists, bullet points, or complex formatting since your text is read out loud by Kokoro TTS.` },
+                            ...chatMessages
+                        ],
+                        max_tokens: 512,
+                        temperature: 0.7,
+                        stream: isStream
+                    })
+                });
+
+                if (!response.ok) {
+                    const errText = await response.text();
+                    contentDiv.innerHTML = `<span class="text-red-400">Error (${response.status}): ${errText}</span>`;
+                    isGenerating = false;
+                    document.getElementById('sendBtn').disabled = false;
+                    return;
+                }
+
+                if (isStream) {
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder('utf-8');
+                    let buffer = '';
+
+                    contentDiv.classList.add('typing-cursor');
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop(); // keep last incomplete line in buffer
+
+                        for (const line of lines) {
+                            const trimmed = line.trim();
+                            if (trimmed.startsWith('data: ') && trimmed !== 'data: [DONE]') {
+                                if (ttft === 0) {
+                                    ttft = performance.now() - t0;
+                                    document.getElementById('metricTtft').innerText = ttft.toFixed(1) + ' ms';
+                                }
+                                try {
+                                    const json = JSON.parse(trimmed.substring(6));
+                                    const delta = json.choices[0]?.delta?.content || '';
+                                    if (delta) {
+                                        fullText += delta;
+                                        tokenCount++;
+                                        contentDiv.innerHTML = marked.parse(fullText);
+                                        scrollChat();
+
+                                        const elapsedSec = (performance.now() - t0) / 1000;
+                                        const speed = (tokenCount / elapsedSec).toFixed(1);
+                                        document.getElementById('metricSpeed').innerText = speed + ' tok/s';
+                                        document.getElementById('metricTokens').innerText = tokenCount + ' tok';
+                                    }
+                                } catch (e) {}
+                            }
+                        }
+                    }
+                    contentDiv.classList.remove('typing-cursor');
+                } else {
+                    const data = await response.json();
+                    ttft = performance.now() - t0;
+                    fullText = data.choices[0]?.message?.content || '';
+                    contentDiv.innerHTML = marked.parse(fullText);
+                    document.getElementById('metricTtft').innerText = ttft.toFixed(1) + ' ms';
+                }
+
+                // Add to history
+                chatMessages.push({ role: 'assistant', content: fullText });
+
+            } catch (err) {
+                contentDiv.innerHTML = `<span class="text-red-400">Fetch Exception: ${err.message}</span>`;
+            }
+
+            isGenerating = false;
+            document.getElementById('sendBtn').disabled = false;
+        }
+
+        function appendUserBubble(text) {
+            const history = document.getElementById('chatHistory');
+            const div = document.createElement('div');
+            div.className = 'flex justify-end mb-4';
+            div.innerHTML = `
+                <div class="max-w-2xl bg-indigo-600 text-white rounded-2xl rounded-tr-none px-4 py-3 text-sm shadow-md">
+                    ${escapeHtml(text)}
+                </div>
+            `;
+            history.appendChild(div);
+            scrollChat();
+        }
+
+        function appendAiBubble(id) {
+            const history = document.getElementById('chatHistory');
+            const div = document.createElement('div');
+            div.className = 'flex items-start space-x-3 mb-4';
+            div.id = id;
+            div.innerHTML = `
+                <div class="w-8 h-8 rounded-xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 text-xs font-bold flex-shrink-0">
+                    <i class="fa-solid fa-robot"></i>
+                </div>
+                <div class="glass-panel border border-gray-800 rounded-2xl rounded-tl-none p-4 text-sm text-gray-200 prose prose-invert max-w-2xl w-full">
+                    <div class="ai-content text-xs leading-relaxed">Generating response...</div>
+                </div>
+            `;
+            history.appendChild(div);
+            scrollChat();
+        }
+
+        function scrollChat() {
+            const history = document.getElementById('chatHistory');
+            history.scrollTop = history.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+
+        // Test connection on load
+        window.onload = testConnection;
+    </script>
+</body>
+</html>
