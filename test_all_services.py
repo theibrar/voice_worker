@@ -13,7 +13,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
 
 # Master Configuration
 HOST = "202.215.0.218"
-API_KEY = "sk-ibrasoft-gpu-voice"
+API_KEY = "IbraSoft-GPUZvrMmfSn3ePVE9spRQ2hi751fGSXq5sFpovfUl7XOggbMRRHee8zRk4SWV7YBSUF"
 
 PORTS = {
     "LLM": 50287,

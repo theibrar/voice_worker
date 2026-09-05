@@ -124,7 +124,8 @@ def start_services():
     except Exception as e:
         logger.error(f"Could not start vLLM: {e}")
 
-    time.sleep(3.0)
+    logger.info("⏳ Waiting 10s for vLLM to reserve GPU KV cache memory before launching STT...")
+    time.sleep(10.0)
 
     # 2. Start STT Transcriber with Denoising (Port 8030)
     logger.info("► [2/5] Launching Streaming STT Engine (Port 8030)...")
