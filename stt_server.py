@@ -72,12 +72,19 @@ def get_stt_model():
         try:
             from faster_whisper import WhisperModel
             import torch
+            # Check if forced to CPU mode (saves ~1.2GB VRAM for vLLM on small GPUs)
+            force_cpu = os.getenv("FORCE_STT_CPU", "0") == "1"
             try:
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-                compute_type = "float16" if device == "cuda" else "int8"
-                logger.info(f"Loading Faster-Whisper ({MODEL_SIZE}) on {device} ({compute_type})...")
+                if force_cpu:
+                    device = "cpu"
+                    compute_type = "int8"
+                    logger.info(f"Loading Faster-Whisper ({MODEL_SIZE}) on CPU (int8) [FORCE_STT_CPU=1]...")
+                else:
+                    device = "cuda" if torch.cuda.is_available() else "cpu"
+                    compute_type = "float16" if device == "cuda" else "int8"
+                    logger.info(f"Loading Faster-Whisper ({MODEL_SIZE}) on {device} ({compute_type})...")
                 whisper_model = WhisperModel(MODEL_SIZE, device=device, compute_type=compute_type)
-                logger.success("✓ Streaming STT Engine initialized on CUDA.")
+                logger.success(f"✓ Streaming STT Engine initialized on {device.upper()}.")
             except Exception as cuda_err:
                 logger.warning(f"CUDA STT init notice: {cuda_err}. Falling back to high-speed CPU mode...")
                 whisper_model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")

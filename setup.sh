@@ -73,7 +73,7 @@ cat <<EOF > .env
 GPU_API_KEY=${DEFAULT_KEY}
 PUBLIC_IP=${PUBLIC_IP}
 LLM_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ
-GPU_MEM_UTIL=0.58
+GPU_MEM_UTIL=0.45
 MAX_MODEL_LEN=2048
 STT_MODEL_SIZE=distil-large-v3
 PORT_VLLM=50287
@@ -88,6 +88,8 @@ VLLM_USE_FLASHINFER_SAMPLER=0
 VLLM_WORKER_MULTIPROC_METHOD=spawn
 KOKORO_MODEL_PATH=/root/voice_worker/models/kokoro-v1.0.onnx
 KOKORO_VOICES_PATH=/root/voice_worker/models/voices-v1.0.bin
+FORCE_STT_CPU=1
+FORCE_VAD_CPU=1
 EOF
 
 echo -e "${GREEN}✓ Environment configured with API key: ${DEFAULT_KEY:0:8}...${NC}"
@@ -193,11 +195,21 @@ API Key  : ${DEFAULT_KEY}
 ==============================================================================
 EOF
 
-# 7. Launch All Services via tmux
-echo -e "${GREEN}[6/6] Launching All 5 GPU AI Engines in Background...${NC}"
+# 7. Clean GPU VRAM & Launch All Services via tmux
+echo -e "${GREEN}[6/6] Cleaning VRAM & Launching All 5 GPU AI Engines...${NC}"
+echo -e "${YELLOW}Killing any existing GPU processes to free VRAM...${NC}"
+pkill -9 -f "vllm" 2>/dev/null || true
+pkill -9 -f "stt_server" 2>/dev/null || true
+pkill -9 -f "tts_server" 2>/dev/null || true
+pkill -9 -f "vad_server" 2>/dev/null || true
+pkill -9 -f "testbench_ui" 2>/dev/null || true
+pkill -9 -f "master_orchestrator" 2>/dev/null || true
 fuser -k 8000/tcp 8030/tcp 8088/tcp 8090/tcp 7860/tcp 2>/dev/null || true
+sleep 2
+echo -e "${CYAN}Current GPU VRAM status:${NC}"
+nvidia-smi
 tmux kill-session -t voice-worker 2>/dev/null || true
-tmux new-session -d -s voice-worker "export VLLM_USE_FLASHINFER_SAMPLER=0; export VLLM_USE_V1=0; python3 master_orchestrator.py"
+tmux new-session -d -s voice-worker "source .env 2>/dev/null; export VLLM_USE_FLASHINFER_SAMPLER=0; export VLLM_USE_V1=0; export FORCE_STT_CPU=1; export FORCE_VAD_CPU=1; export GPU_MEM_UTIL=0.45; python3 master_orchestrator.py"
 
 sleep 3
 

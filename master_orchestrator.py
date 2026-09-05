@@ -17,7 +17,7 @@ from loguru import logger
 
 API_KEY = os.getenv("GPU_API_KEY", "sk-ibrasoft-gpu-voice")
 LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct-AWQ")
-GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.50")
+GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.45")
 PUBLIC_IP = os.getenv("PUBLIC_IP", "202.215.0.218")
 PORT_VLLM = os.getenv("PORT_VLLM", "50287")
 PORT_TTS = os.getenv("PORT_TTS", "50869")
@@ -68,13 +68,14 @@ def start_services():
     env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     
     logger.info("📊 VRAM ALLOCATION BUDGET (12.0 GB Total):")
-    logger.info("   • Qwen2.5-7B AWQ Weights + KV Cache (vLLM) : ~6.7 GB (0.58 utilization)")
-    logger.info("   • Faster-Whisper FP16 (STT)     : ~1.2 GB")
-    logger.info("   • Kokoro-82M ONNX (TTS)         : ~0.5 GB")
-    logger.info("   • Silero VAD v5 (VAD)           : ~0.1 GB")
-    logger.info("   • CUDA / PyTorch Contexts       : ~1.2 GB (Kernel & Driver overhead)")
-    logger.info("   • Total Base Footprint          : ~7.4 GB / 12.0 GB")
-    logger.info("   • FREE VRAM for Callers         : ~4.6 GB (PagedAttention Slots)")
+    logger.info("   • Qwen2.5-7B AWQ Weights + KV Cache (vLLM) : ~5.2 GB (0.45 utilization)")
+    logger.info("   • Kokoro-82M ONNX (TTS on CPU)              : 0.0 GB")
+    logger.info("   • Faster-Whisper int8 (STT on CPU)           : 0.0 GB")
+    logger.info("   • Silero VAD v5 (VAD on CPU)                 : 0.0 GB")
+    logger.info("   • CUDA / PyTorch Context (vLLM only)         : ~0.8 GB")
+    logger.info("   • Total GPU Footprint                        : ~6.0 GB / 12.0 GB")
+    logger.info("   • FREE VRAM for KV Cache                     : ~6.0 GB")
+    logger.info("   ★ STT & VAD run on CPU (i9-13900K is fast enough)")
     logger.info("==================================================================")
 
     cublas_lib = "/usr/local/lib/python3.10/dist-packages/nvidia/cublas/lib"
@@ -87,17 +88,10 @@ def start_services():
     os.environ["LD_LIBRARY_PATH"] = full_ld_path
     env["LD_LIBRARY_PATH"] = full_ld_path
 
-    # Preload CUDA runtime & cuBLAS globally into process table
-    import ctypes
-    for p in [curun_lib, cublas_lib, cudnn_lib]:
-        if os.path.exists(p):
-            for lib in ["libcudart.so.12", "libcublas.so.12", "libcublasLt.so.12"]:
-                f_path = os.path.join(p, lib)
-                if os.path.exists(f_path):
-                    try:
-                        ctypes.CDLL(f_path, mode=ctypes.RTLD_GLOBAL)
-                    except Exception:
-                        pass
+    # NOTE: Do NOT preload CUDA libs via ctypes.CDLL here!
+    # That creates a ~600MB CUDA context in the master process that wastes VRAM.
+    # Each child service will find the libs via LD_LIBRARY_PATH set above.
+    logger.info("LD_LIBRARY_PATH configured (no CUDA context created in master — saves ~600MB VRAM)")
 
     # 1. Start vLLM Engine FIRST (Port 8000) so it acquires GPU memory on clean VRAM
     logger.info(f"► [1/5] Launching vLLM Engine ({LLM_MODEL}) on Port 8000...")
@@ -148,21 +142,25 @@ def start_services():
     if not vllm_ready:
         logger.warning("vLLM readiness polling timeout reached; proceeding with remaining engines...")
 
-    # 2. Start STT Transcriber with Denoising (Port 8030)
-    logger.info("► [2/5] Launching Streaming STT Engine (Port 8030)...")
-    p_stt = subprocess.Popen([sys.executable, "stt_server.py"], env=env)
+    # 2. Start STT Transcriber with Denoising (Port 8030) — FORCED CPU to save VRAM
+    logger.info("► [2/5] Launching Streaming STT Engine (Port 8030) [CPU int8 — saves ~1.2GB VRAM]...")
+    stt_env = env.copy()
+    stt_env["FORCE_STT_CPU"] = "1"
+    p_stt = subprocess.Popen([sys.executable, "stt_server.py"], env=stt_env)
     processes.append(p_stt)
     time.sleep(1.5)
 
-    # 3. Start Kokoro-82M TTS Server (Port 8088)
-    logger.info("► [3/5] Launching Kokoro-82M Neural TTS Engine (Port 8088)...")
+    # 3. Start Kokoro-82M TTS Server (Port 8088) — CPU ONNX
+    logger.info("► [3/5] Launching Kokoro-82M Neural TTS Engine (Port 8088) [CPU ONNX]...")
     p_tts = subprocess.Popen([sys.executable, "tts_server.py"], env=env)
     processes.append(p_tts)
     time.sleep(1.5)
 
-    # 4. Start Silero VAD Barge-In Controller (Port 8090)
-    logger.info("► [4/5] Launching Silero VAD & Barge-in Controller (Port 8090)...")
-    p_vad = subprocess.Popen([sys.executable, "vad_server.py"], env=env)
+    # 4. Start Silero VAD Barge-In Controller (Port 8090) — FORCED CPU to save VRAM
+    logger.info("► [4/5] Launching Silero VAD & Barge-in Controller (Port 8090) [CPU — saves ~0.4GB VRAM]...")
+    vad_env = env.copy()
+    vad_env["FORCE_VAD_CPU"] = "1"
+    p_vad = subprocess.Popen([sys.executable, "vad_server.py"], env=vad_env)
     processes.append(p_vad)
     time.sleep(1.5)
 
