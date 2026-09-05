@@ -45,7 +45,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from loguru import logger
 
-API_KEY = os.getenv("GPU_API_KEY", "sk-ibrasoft-gpu-voice")
+API_KEY = os.getenv("GPU_API_KEY", "")
 # Model Path Resolution & Auto-Downloader
 models_dir = os.path.join(os.path.dirname(__file__), "models")
 os.makedirs(models_dir, exist_ok=True)

@@ -1,3 +1,4 @@
+import os
 import sys
 import time
 import json
@@ -11,44 +12,17 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
     except Exception:
         pass
 
-# Master Configuration & Auto-Resolver for Local vs Remote Execution
-PUBLIC_HOST = "77.54.200.11"
+# Master Configuration
+HOST = "77.54.200.11"
+API_KEY = os.environ.get("GPU_API_KEY", "")
 
-import os
-
-def get_api_key():
-    env_key = os.getenv("GPU_API_KEY")
-    if env_key:
-        return env_key
-    env_file = os.path.join(os.path.dirname(__file__), ".env")
-    if os.path.exists(env_file):
-        try:
-            with open(env_file, "r") as f:
-                for line in f:
-                    if line.startswith("GPU_API_KEY="):
-                        return line.split("=", 1)[1].strip()
-        except Exception:
-            pass
-    return "sk-ibrasoft-gpu-voice"
-
-API_KEY = get_api_key()
-
-def resolve_target():
-    import socket
-    local_ports = {"LLM": 8000, "TTS": 8088, "STT": 8030, "VAD": 8090, "UI": 7860}
-    public_ports = {"LLM": 15363, "TTS": 15173, "STT": 15426, "VAD": 15197, "UI": 15290}
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(0.5)
-        if s.connect_ex(('127.0.0.1', 8088)) == 0 or s.connect_ex(('127.0.0.1', 8000)) == 0 or s.connect_ex(('127.0.0.1', 8030)) == 0:
-            s.close()
-            return "127.0.0.1", local_ports
-        s.close()
-    except Exception:
-        pass
-    return PUBLIC_HOST, public_ports
-
-HOST, PORTS = resolve_target()
+PORTS = {
+    "LLM": 15460,
+    "TTS": 15188,
+    "STT": 15490,
+    "VAD": 15089,
+    "UI":  15238
+}
 
 GREEN = "\033[92m"
 RED = "\033[91m"

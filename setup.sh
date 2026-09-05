@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Enterprise Voice AI GPU Node - Automated One-Click Installer
-# Hardware Target: 1x NVIDIA RTX 4060 Ti (16GB VRAM) | Intel Xeon E5-2673 v4
+# Hardware Target: 1x NVIDIA RTX 5060 Ti (16GB VRAM) | Intel Xeon E5-2673 v4
 # Public IP: 77.54.200.11
-# Stack: Parakeet TDT 0.6B/1.1B INT8 -> Qwen 2.5 7B -> Kokoro-82M (+ Silero VAD v5)
+# Stack: Parakeet TDT 0.6B INT8 -> Qwen 4B/7B -> Kokoro-82M (+ Silero VAD v5)
 # ==============================================================================
 
 set -e
@@ -19,17 +19,17 @@ NC='\033[0m'
 echo -e "${CYAN}"
 echo "=============================================================================="
 echo "    🎙️  ENTERPRISE GPU VOICE AI WORKER - AUTOMATED INSTALLER                  "
-echo "    Target GPU : 1x NVIDIA RTX 4060 Ti (16GB VRAM)                            "
-echo "    CPU        : Intel Xeon E5-2673 v4 (20 vCPUs, 96.7GB RAM)                 "
-echo "    Public IP  : 77.54.200.11                                                 "
-echo "    Pipeline   : NVIDIA Parakeet-TDT v3 -> Qwen2.5-7B -> Kokoro-82M           "
+echo "    Target GPU : 1x NVIDIA RTX 5060 Ti (16GB VRAM)                            "
+echo "    CPU        : Intel Xeon E5-2673 v4 (40 vCPUs, 96.5GB RAM)                 "
+echo "    Public IP  : 77.54.200.11                                              "
+echo "    Pipeline   : Parakeet TDT 0.6B -> Qwen3-4B / Qwen2.5 -> Kokoro-82M        "
 echo "=============================================================================="
 echo -e "${NC}"
 
 # 1. Check NVIDIA GPU
 echo -e "${GREEN}[1/6] Detecting NVIDIA GPU Hardware...${NC}"
 if command -v nvidia-smi &> /dev/null; then
-    nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader || echo "NVIDIA GPU Detected."
+    nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
     echo -e "${GREEN}✓ GPU verified.${NC}"
 else
     echo -e "${RED}❌ NVIDIA GPU not found. Please run on an NVIDIA GPU instance.${NC}"
@@ -60,48 +60,41 @@ apt-get install -y --no-install-recommends \
 
 # 3. Configure Environment & API Key
 echo -e "${GREEN}[3/6] Setting Up Secure Environment...${NC}"
+DEFAULT_KEY=""
 PUBLIC_IP="77.54.200.11"
 
-# Prompt user for custom Global API Key if running interactively
-if [ -t 0 ]; then
-    echo -e "${YELLOW}🔑 Please enter your Master Global API Key (Press ENTER for default 'sk-ibrasoft-gpu-voice'):${NC}"
-    read -r USER_KEY
-fi
-
-if [ -n "$USER_KEY" ]; then
-    DEFAULT_KEY="$USER_KEY"
-else
-    DEFAULT_KEY="${GPU_API_KEY:-sk-ibrasoft-gpu-voice}"
-fi
-
 cat <<EOF > .env
+# ============================================================
+# 🔑 GPU API KEY - SET YOUR OWN KEY HERE
+# ============================================================
+# Uncomment and set your custom API key below:
+# GPU_API_KEY=sk-your-custom-api-key-here
 GPU_API_KEY=${DEFAULT_KEY}
 PUBLIC_IP=${PUBLIC_IP}
 LLM_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ
 GPU_MEM_UTIL=0.50
 MAX_MODEL_LEN=2048
-STT_MODEL_SIZE=nvidia/parakeet-tdt-1.1b
-PORT_VLLM=15363
-PORT_TTS=15173
-PORT_STT=15426
-PORT_VAD=15197
-PORT_UI=15290
-CUDA_VISIBLE_DEVICES=0
+STT_MODEL_SIZE=distil-large-v3
+PORT_VLLM=15460
+PORT_TTS=15188
+PORT_STT=15490
+PORT_VAD=15089
+PORT_UI=15238
 CUDA_MODULE_LOADING=LAZY
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 VLLM_USE_V1=0
 VLLM_USE_FLASHINFER_SAMPLER=0
 VLLM_WORKER_MULTIPROC_METHOD=spawn
-KOKORO_MODEL_PATH=/root/voice_worker/models/kokoro-v1.0.onnx
-KOKORO_VOICES_PATH=/root/voice_worker/models/voices-v1.0.bin
+KOKORO_MODEL_PATH=/root/voice_worker/models/kokoro-v0_19.onnx
+KOKORO_VOICES_PATH=/root/voice_worker/models/voices.bin
 EOF
 
-echo -e "${GREEN}✓ Environment configured (API Key: ${DEFAULT_KEY}).${NC}"
+echo -e "${GREEN}✓ Environment configured. Set your GPU_API_KEY in .env file.${NC}"
 
 # 4. Install Python AI Libraries & llama.cpp Server
 echo -e "${GREEN}[4/6] Installing PyTorch, vLLM, Faster-Whisper, Kokoro, Silero, Gradio, & llama.cpp...${NC}"
 python3 -m pip install --upgrade pip setuptools wheel
-python3 -m pip install -r requirements.txt peft transformers
+python3 -m pip install -r requirements.txt
 python3 -m pip install llama-cpp-python[server] --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 || true
 
 # Register NVIDIA python libs directly in /usr/local/lib and system linker (fixes libcublas.so.12)
@@ -171,40 +164,41 @@ echo -e "${GREEN}✓ All model assets downloaded and cached in ./models/${NC}"
 cat <<EOF > ENDPOINTS.txt
 ==============================================================================
    APEX ENTERPRISE GPU VOICE AI CLUSTER - PRODUCTION ENDPOINTS
-   Hardware: 1x NVIDIA RTX 4060 Ti (16GB VRAM) | Intel Xeon E5-2673 v4
+   Hardware: 1x NVIDIA RTX 5060 Ti (16GB VRAM) | Intel Xeon E5-2673 v4
 ==============================================================================
 
 Public IP: ${PUBLIC_IP}
 API Key  : ${DEFAULT_KEY}
 
 1. vLLM / LLM OpenAI Engine (Port 8000)
-   Public URL : http://${PUBLIC_IP}:15363/v1
+   Public URL : http://${PUBLIC_IP}:${PORT_VLLM}/v1
    Model      : Qwen3-4B / Qwen2.5-7B-Instruct-AWQ
 
 2. Kokoro-82M Streaming Neural TTS (Port 8088)
-   Public URL : http://${PUBLIC_IP}:15173
+   Public URL : http://${PUBLIC_IP}:${PORT_TTS}
    Voices     : Full voice pack (af_bella, am_michael, am_adam, af_sarah, bf_emma)
    Features   : Free-form style tags, SSML <break>, volume gain, <50ms TTFA
 
 3. Fast Streaming STT Engine (Port 8030)
-   Public URL : http://${PUBLIC_IP}:15426
-   Model      : NVIDIA Parakeet-TDT (v3)
+   Public URL : http://${PUBLIC_IP}:${PORT_STT}
+   Model      : Faster-Whisper distil-large-v3 (CUDA float16)
 
 4. Silero VAD v5 Controller (Port 8090)
-   Public URL : http://${PUBLIC_IP}:15197
+   Public URL : http://${PUBLIC_IP}:${PORT_VAD}
    Spec       : 16kHz, 512 samples / 32ms frame chunking
 
 5. Gradio Live Interactive Playground (Port 7860)
-   Public URL : http://${PUBLIC_IP}:15290
+   Public URL : http://${PUBLIC_IP}:${PORT_UI}
 ==============================================================================
 EOF
 
 # 7. Launch All Services via tmux
-echo -e "${GREEN}[6/6] Launching All 5 GPU AI Engines in Background tmux Session...${NC}"
+echo -e "${GREEN}[6/6] Launching All 5 GPU AI Engines in Background...${NC}"
 fuser -k 8000/tcp 8030/tcp 8088/tcp 8090/tcp 7860/tcp 2>/dev/null || true
-pkill -f master_orchestrator.py 2>/dev/null || true
+pkill -9 -f "tts_server|stt_server|vad_server|testbench_ui|vllm" 2>/dev/null || true
 tmux kill-session -t voice-worker 2>/dev/null || true
-tmux new-session -d -s voice-worker "export VLLM_USE_FLASHINFER_SAMPLER=0; export VLLM_USE_V1=0; python3 master_orchestrator.py"
+sleep 2
+tmux new-session -d -s voice-worker "export VLLM_USE_FLASHINFER_SAMPLER=0; export VLLM_USE_V1=0; python3 -u master_orchestrator.py"
 
 sleep 3
 
@@ -212,9 +206,9 @@ cat ENDPOINTS.txt
 
 echo -e "${CYAN}"
 echo "=============================================================================="
-echo " 🎉 ALL GPU SERVICES ARE RUNNING IN BACKGROUND TMUX SESSION!"
+echo " 🎉 ALL GPU SERVICES ARE RUNNING IN THE BACKGROUND!"
 echo "    Inspect live logs anytime with: tmux attach -t voice-worker"
 echo "    Or test your mic in your browser at:"
-echo "    👉 http://${PUBLIC_IP}:15290"
+echo "    👉 http://${PUBLIC_IP}:15238"
 echo "=============================================================================="
 echo -e "${NC}"

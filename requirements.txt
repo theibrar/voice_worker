@@ -9,13 +9,9 @@ nvidia-cudnn-cu12
 # LLM Serving Engine
 vllm>=0.6.3
 
-# Neural Audio TTS & STT (NVIDIA Parakeet-TDT v3 + Kokoro)
+# Neural Audio TTS & STT
 kokoro-onnx>=0.3.1
 faster-whisper>=1.0.3
-sherpa-onnx>=1.10.0
-nemo_toolkit[asr]>=1.23.0
-peft>=0.11.0
-transformers>=4.40.0
 soundfile>=0.12.1
 scipy>=1.11.0
 numpy>=1.26.0

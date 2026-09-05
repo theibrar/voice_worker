@@ -57,7 +57,7 @@
                     <div>
                         <h2 class="text-base font-bold text-white flex items-center gap-2">
                             🎙️ Faster-Whisper STT Transcriber
-                            <span class="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full">Port 56546</span>
+                            <span class="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full">Port 15490</span>
                         </h2>
                         <p class="text-xs text-gray-400">Record your microphone or upload an audio file to test speech recognition speed and accuracy.</p>
                     </div>
@@ -105,7 +105,7 @@
                     <div>
                         <h2 class="text-base font-bold text-white flex items-center gap-2">
                             🗣️ Kokoro-82M Neural Speech Synthesizer
-                            <span class="text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded-full">Port 56209 (GPU)</span>
+                            <span class="text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded-full">Port 15188 (GPU)</span>
                         </h2>
                         <p class="text-xs text-gray-400">Type any text phrase, choose a voice and emotion tag, and test neural speech generation speed.</p>
                     </div>
@@ -216,9 +216,9 @@
 
     <!-- JavaScript Logic -->
     <script>
-        const STT_URL = "http://77.54.200.11:15426";
-        const TTS_URL = "http://77.54.200.11:15173";
-        const API_KEY = "sk-ibrasoft-gpu-voice";
+        const STT_URL = "http://77.54.200.11:15490";
+        const TTS_URL = "http://77.54.200.11:15188";
+        const API_KEY = "";  // Set your GPU_API_KEY here
 
         let mediaRecorder;
         let audioChunks = [];

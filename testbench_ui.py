@@ -14,7 +14,7 @@ import soundfile as sf
 import io
 import psutil
 
-API_KEY = os.getenv("GPU_API_KEY", "sk-ibrasoft-gpu-voice")
+API_KEY = os.getenv("GPU_API_KEY", "")
 TTS_URL = "http://127.0.0.1:8088"
 STT_URL = "http://127.0.0.1:8030"
 VLLM_URL = "http://127.0.0.1:8000/v1"
@@ -212,7 +212,7 @@ def check_vllm_status():
         pass
     return "🟡 **vLLM Engine:** Loading weights or downloading from HuggingFace (~15GB). Models will become active once download completes!"
 
-PUBLIC_IP = os.getenv("PUBLIC_IP", "184.144.154.180")
+PUBLIC_IP = os.getenv("PUBLIC_IP", "77.54.200.11")
 
 # Build Gradio Interface
 with gr.Blocks(title="Apex Enterprise Voice AI - GPU Testbench") as demo:
