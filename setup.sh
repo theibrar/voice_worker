@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Enterprise Voice AI GPU Node - Automated One-Click Installer
-# Hardware Target: 1x NVIDIA RTX 3060 (12GB VRAM) | Intel 13th Gen Core i9-13900K
-# Public IP: 202.215.0.218
-# Stack: Faster-Whisper -> Qwen 7B AWQ -> Kokoro-82M (+ Silero VAD v5)
+# Hardware Target: 1x NVIDIA RTX 4060 Ti (16GB VRAM) | Intel Xeon E5-2673 v4
+# Public IP: 77.54.200.11
+# Stack: Parakeet TDT 0.6B/1.1B INT8 -> Qwen 2.5 7B -> Kokoro-82M (+ Silero VAD v5)
 # ==============================================================================
 
 set -e
@@ -19,10 +19,10 @@ NC='\033[0m'
 echo -e "${CYAN}"
 echo "=============================================================================="
 echo "    🎙️  ENTERPRISE GPU VOICE AI WORKER - AUTOMATED INSTALLER                  "
-echo "    Target GPU : 1x NVIDIA RTX 3060 (12GB VRAM)                              "
-echo "    CPU        : Intel 13th Gen Core i9-13900K (32 vCPUs, 128.5GB RAM)        "
-echo "    Public IP  : 202.215.0.218                                                "
-echo "    Pipeline   : Faster-Whisper -> Qwen2.5-7B -> Kokoro-82M                    "
+echo "    Target GPU : 1x NVIDIA RTX 4060 Ti (16GB VRAM)                            "
+echo "    CPU        : Intel Xeon E5-2673 v4 (20 vCPUs, 96.7GB RAM)                 "
+echo "    Public IP  : 77.54.200.11                                                 "
+echo "    Pipeline   : NVIDIA Parakeet-TDT v3 -> Qwen2.5-7B -> Kokoro-82M           "
 echo "=============================================================================="
 echo -e "${NC}"
 
@@ -60,27 +60,32 @@ apt-get install -y --no-install-recommends \
 
 # 3. Configure Environment & API Key
 echo -e "${GREEN}[3/6] Setting Up Secure Environment...${NC}"
-echo -e "${YELLOW}🔑 Please enter your Global GPU API Key:${NC}"
+PUBLIC_IP="77.54.200.11"
+
+# Prompt user for custom Global API Key if running interactively
 if [ -t 0 ]; then
-    read -p "API Key [Press Enter for default: sk-ibrasoft-gpu-voice]: " INPUT_API_KEY
-else
-    INPUT_API_KEY=""
+    echo -e "${YELLOW}🔑 Please enter your Master Global API Key (Press ENTER for default 'sk-ibrasoft-gpu-voice'):${NC}"
+    read -r USER_KEY
 fi
-DEFAULT_KEY=${INPUT_API_KEY:-"sk-ibrasoft-gpu-voice"}
-PUBLIC_IP="202.215.0.218"
+
+if [ -n "$USER_KEY" ]; then
+    DEFAULT_KEY="$USER_KEY"
+else
+    DEFAULT_KEY="${GPU_API_KEY:-sk-ibrasoft-gpu-voice}"
+fi
 
 cat <<EOF > .env
 GPU_API_KEY=${DEFAULT_KEY}
 PUBLIC_IP=${PUBLIC_IP}
 LLM_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ
-GPU_MEM_UTIL=0.45
+GPU_MEM_UTIL=0.50
 MAX_MODEL_LEN=2048
-STT_MODEL_SIZE=distil-large-v3
-PORT_VLLM=50287
-PORT_TTS=50869
-PORT_STT=50053
-PORT_VAD=50604
-PORT_UI=50057
+STT_MODEL_SIZE=nvidia/parakeet-tdt-1.1b
+PORT_VLLM=15363
+PORT_TTS=15173
+PORT_STT=15426
+PORT_VAD=15197
+PORT_UI=15290
 CUDA_MODULE_LOADING=LAZY
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 VLLM_USE_V1=0
@@ -88,11 +93,9 @@ VLLM_USE_FLASHINFER_SAMPLER=0
 VLLM_WORKER_MULTIPROC_METHOD=spawn
 KOKORO_MODEL_PATH=/root/voice_worker/models/kokoro-v1.0.onnx
 KOKORO_VOICES_PATH=/root/voice_worker/models/voices-v1.0.bin
-FORCE_STT_CPU=1
-FORCE_VAD_CPU=1
 EOF
 
-echo -e "${GREEN}✓ Environment configured with API key: ${DEFAULT_KEY:0:8}...${NC}"
+echo -e "${GREEN}✓ Environment configured (API Key: ${DEFAULT_KEY}).${NC}"
 
 # 4. Install Python AI Libraries & llama.cpp Server
 echo -e "${GREEN}[4/6] Installing PyTorch, vLLM, Faster-Whisper, Kokoro, Silero, Gradio, & llama.cpp...${NC}"
@@ -167,49 +170,40 @@ echo -e "${GREEN}✓ All model assets downloaded and cached in ./models/${NC}"
 cat <<EOF > ENDPOINTS.txt
 ==============================================================================
    APEX ENTERPRISE GPU VOICE AI CLUSTER - PRODUCTION ENDPOINTS
-   Hardware: 1x NVIDIA RTX 5060 Ti (16GB VRAM) | Intel Xeon E5-2673 v4
+   Hardware: 1x NVIDIA RTX 4060 Ti (16GB VRAM) | Intel Xeon E5-2673 v4
 ==============================================================================
 
 Public IP: ${PUBLIC_IP}
 API Key  : ${DEFAULT_KEY}
 
 1. vLLM / LLM OpenAI Engine (Port 8000)
-   Public URL : http://${PUBLIC_IP}:${PORT_VLLM}/v1
+   Public URL : http://${PUBLIC_IP}:15363/v1
    Model      : Qwen3-4B / Qwen2.5-7B-Instruct-AWQ
 
 2. Kokoro-82M Streaming Neural TTS (Port 8088)
-   Public URL : http://${PUBLIC_IP}:${PORT_TTS}
+   Public URL : http://${PUBLIC_IP}:15173
    Voices     : Full voice pack (af_bella, am_michael, am_adam, af_sarah, bf_emma)
    Features   : Free-form style tags, SSML <break>, volume gain, <50ms TTFA
 
 3. Fast Streaming STT Engine (Port 8030)
-   Public URL : http://${PUBLIC_IP}:${PORT_STT}
-   Model      : Faster-Whisper distil-large-v3 (CUDA float16)
+   Public URL : http://${PUBLIC_IP}:15426
+   Model      : NVIDIA Parakeet-TDT (v3)
 
 4. Silero VAD v5 Controller (Port 8090)
-   Public URL : http://${PUBLIC_IP}:${PORT_VAD}
+   Public URL : http://${PUBLIC_IP}:15197
    Spec       : 16kHz, 512 samples / 32ms frame chunking
 
 5. Gradio Live Interactive Playground (Port 7860)
-   Public URL : http://${PUBLIC_IP}:${PORT_UI}
+   Public URL : http://${PUBLIC_IP}:15290
 ==============================================================================
 EOF
 
-# 7. Clean GPU VRAM & Launch All Services via tmux
-echo -e "${GREEN}[6/6] Cleaning VRAM & Launching All 5 GPU AI Engines...${NC}"
-echo -e "${YELLOW}Killing any existing GPU processes to free VRAM...${NC}"
-pkill -9 -f "vllm" 2>/dev/null || true
-pkill -9 -f "stt_server" 2>/dev/null || true
-pkill -9 -f "tts_server" 2>/dev/null || true
-pkill -9 -f "vad_server" 2>/dev/null || true
-pkill -9 -f "testbench_ui" 2>/dev/null || true
-pkill -9 -f "master_orchestrator" 2>/dev/null || true
+# 7. Launch All Services via tmux
+echo -e "${GREEN}[6/6] Launching All 5 GPU AI Engines in Background tmux Session...${NC}"
 fuser -k 8000/tcp 8030/tcp 8088/tcp 8090/tcp 7860/tcp 2>/dev/null || true
-sleep 2
-echo -e "${CYAN}Current GPU VRAM status:${NC}"
-nvidia-smi
+pkill -f master_orchestrator.py 2>/dev/null || true
 tmux kill-session -t voice-worker 2>/dev/null || true
-tmux new-session -d -s voice-worker "source .env 2>/dev/null; export VLLM_USE_FLASHINFER_SAMPLER=0; export VLLM_USE_V1=0; export FORCE_STT_CPU=1; export FORCE_VAD_CPU=1; export GPU_MEM_UTIL=0.45; python3 master_orchestrator.py"
+tmux new-session -d -s voice-worker "export VLLM_USE_FLASHINFER_SAMPLER=0; export VLLM_USE_V1=0; python3 master_orchestrator.py"
 
 sleep 3
 
@@ -217,9 +211,9 @@ cat ENDPOINTS.txt
 
 echo -e "${CYAN}"
 echo "=============================================================================="
-echo " 🎉 ALL GPU SERVICES ARE RUNNING IN THE BACKGROUND!"
+echo " 🎉 ALL GPU SERVICES ARE RUNNING IN BACKGROUND TMUX SESSION!"
 echo "    Inspect live logs anytime with: tmux attach -t voice-worker"
 echo "    Or test your mic in your browser at:"
-echo "    👉 http://${PUBLIC_IP}:45227"
+echo "    👉 http://${PUBLIC_IP}:15290"
 echo "=============================================================================="
 echo -e "${NC}"

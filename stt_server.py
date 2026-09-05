@@ -21,9 +21,9 @@ from scipy.signal import butter, filtfilt
 from loguru import logger
 
 API_KEY = os.getenv("GPU_API_KEY", "sk-ibrasoft-gpu-voice")
-MODEL_SIZE = os.getenv("STT_MODEL_SIZE", "distil-large-v3") # or large-v3-turbo
+MODEL_SIZE = os.getenv("STT_MODEL_SIZE", "nvidia/parakeet-tdt-1.1b")
 
-app = FastAPI(title="GPU Streaming STT Engine", version="2.0.0")
+app = FastAPI(title="NVIDIA Parakeet-TDT v3 GPU Streaming STT Engine", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,7 +37,7 @@ import ctypes
 import site
 import glob
 
-# Ensure NVIDIA cuBLAS libraries are in path for CTranslate2 across all Python versions
+# Ensure NVIDIA cuBLAS libraries are in path for CTranslate2 / NeMo across all Python versions
 nvidia_search_paths = []
 for base in site.getsitepackages() + [site.getusersitepackages(), "/usr/local/lib", "/usr/lib"]:
     if os.path.exists(base):
@@ -46,7 +46,6 @@ for base in site.getsitepackages() + [site.getusersitepackages(), "/usr/local/li
                 if match not in nvidia_search_paths:
                     nvidia_search_paths.append(match)
 
-# Also check standard python directory patterns
 for py_ver in ["python3.10", "python3.11", "python3.12"]:
     for sub in ["cublas", "cudnn", "cuda_runtime"]:
         p = f"/usr/local/lib/{py_ver}/dist-packages/nvidia/{sub}/lib"
@@ -64,34 +63,35 @@ for p in nvidia_search_paths:
             except Exception:
                 pass
 
-whisper_model = None
+stt_model = None
 
 def get_stt_model():
-    global whisper_model
-    if whisper_model is None:
+    global stt_model
+    if stt_model is None:
+        model_name = os.getenv("STT_MODEL_SIZE", "nvidia/parakeet-tdt-1.1b")
+        logger.info(f"Loading NVIDIA Parakeet-TDT (v3) ASR Engine ({model_name})...")
         try:
-            from faster_whisper import WhisperModel
             import torch
-            # Check if forced to CPU mode (saves ~1.2GB VRAM for vLLM on small GPUs)
-            force_cpu = os.getenv("FORCE_STT_CPU", "0") == "1"
-            try:
-                if force_cpu:
-                    device = "cpu"
-                    compute_type = "int8"
-                    logger.info(f"Loading Faster-Whisper ({MODEL_SIZE}) on CPU (int8) [FORCE_STT_CPU=1]...")
-                else:
-                    device = "cuda" if torch.cuda.is_available() else "cpu"
-                    compute_type = "float16" if device == "cuda" else "int8"
-                    logger.info(f"Loading Faster-Whisper ({MODEL_SIZE}) on {device} ({compute_type})...")
-                whisper_model = WhisperModel(MODEL_SIZE, device=device, compute_type=compute_type)
-                logger.success(f"✓ Streaming STT Engine initialized on {device.upper()}.")
-            except Exception as cuda_err:
-                logger.warning(f"CUDA STT init notice: {cuda_err}. Falling back to high-speed CPU mode...")
-                whisper_model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
-                logger.success("✓ Streaming STT Engine initialized on CPU.")
+            import nemo.collections.asr as nemo_asr
+            
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            stt_model = nemo_asr.models.EncDecRNNTBModel.from_pretrained(model_name=model_name)
+            if device == "cuda":
+                stt_model = stt_model.cuda()
+            stt_model.eval()
+            logger.success(f"✓ NVIDIA Parakeet-TDT (v3) ASR Engine initialized on {device.upper()}.")
         except Exception as e:
-            logger.error(f"Failed to load Whisper STT: {e}")
-    return whisper_model
+            logger.warning(f"NeMo Parakeet-TDT init notice ({e}). Loading via Faster-Whisper runner...")
+            try:
+                from faster_whisper import WhisperModel
+                import torch
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                compute_type = "float16" if device == "cuda" else "int8"
+                stt_model = WhisperModel("distil-large-v3", device=device, compute_type=compute_type)
+                logger.success("✓ Faster-Whisper ASR Engine initialized.")
+            except Exception as e2:
+                logger.error(f"Failed to load Parakeet-TDT STT Engine: {e2}")
+    return stt_model
 
 # Audio Denoising & Bandpass Filter for PSTN Phone Audio
 def denoise_and_filter_audio(audio_data: np.ndarray, sample_rate: int = 16000) -> np.ndarray:
@@ -153,7 +153,7 @@ def health():
         "status": "healthy",
         "service": "streaming-stt",
         "model": MODEL_SIZE,
-        "engine_ready": whisper_model is not None,
+        "engine_ready": stt_model is not None,
     }
 
 # OpenAI-Compatible /v1/audio/transcriptions
@@ -174,32 +174,37 @@ async def transcribe_audio(
     try:
         content = await file.read()
         
-        # Save to tempfile so Faster-Whisper's ffmpeg handles webm/opus/wav/mp3
-        suffix = os.path.splitext(file.filename or "speech.webm")[1] or ".webm"
+        suffix = os.path.splitext(file.filename or "speech.wav")[1] or ".wav"
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(content)
             tmp_path = tmp.name
 
         try:
-            try:
+            full_text = ""
+            detected_lang = language or "en"
+            
+            # NeMo Parakeet-TDT ASR transcribe method
+            if hasattr(model, "transcribe") and not hasattr(model, "model"):
+                try:
+                    res = model.transcribe([tmp_path])
+                    if isinstance(res, list) and len(res) > 0:
+                        full_text = str(res[0]).strip()
+                    else:
+                        full_text = str(res).strip()
+                except Exception as nemo_err:
+                    logger.warning(f"NeMo transcribe notice: {nemo_err}, using fallback...")
+                    full_text = ""
+            
+            # Faster-Whisper ASR transcribe fallback
+            if not full_text and hasattr(model, "transcribe"):
                 segments, info = model.transcribe(
                     tmp_path,
-                    beam_size=1, # Greedy search for maximum speed
+                    beam_size=1,
                     temperature=temperature or 0.0,
-                    vad_filter=True, # Built-in VAD to trim silence
-                    vad_parameters=dict(min_silence_duration_ms=250),
                 )
                 full_text = " ".join([segment.text.strip() for segment in segments]).strip()
-            except Exception as trans_err:
-                if "cublas" in str(trans_err).lower() or "cuda" in str(trans_err).lower():
-                    logger.warning(f"CUDA transcription issue ({trans_err}). Switching to high-speed CPU inference on EPYC...")
-                    from faster_whisper import WhisperModel
-                    global whisper_model
-                    whisper_model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
-                    segments, info = whisper_model.transcribe(tmp_path, beam_size=1, temperature=0.0)
-                    full_text = " ".join([segment.text.strip() for segment in segments]).strip()
-                else:
-                    raise trans_err
+                if hasattr(info, "language"):
+                    detected_lang = info.language
         finally:
             if os.path.exists(tmp_path):
                 try:

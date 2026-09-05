@@ -35,19 +35,13 @@ def get_vad_model():
     if vad_model is not None:
         return vad_model
 
-    # Check if forced to CPU mode (saves VRAM for vLLM on small GPUs)
-    force_cpu = os.getenv("FORCE_VAD_CPU", "0") == "1"
-    if force_cpu:
-        device = torch.device("cpu")
-        logger.info("Silero VAD forced to CPU mode [FORCE_VAD_CPU=1]")
-    else:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # 1. Try silero_vad package
     try:
         from silero_vad import load_silero_vad
         vad_model = load_silero_vad(onnx=False).to(device)
-        logger.success(f"✓ Silero VAD Engine initialized via silero_vad on {device}.")
+        logger.success("✓ Silero VAD Engine initialized via silero_vad.")
         return vad_model
     except Exception as e:
         logger.warning(f"silero_vad package notice: {e}")
