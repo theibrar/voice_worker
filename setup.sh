@@ -100,7 +100,7 @@ echo -e "${GREEN}✓ Environment configured (API Key: ${DEFAULT_KEY}).${NC}"
 # 4. Install Python AI Libraries & llama.cpp Server
 echo -e "${GREEN}[4/6] Installing PyTorch, vLLM, Faster-Whisper, Kokoro, Silero, Gradio, & llama.cpp...${NC}"
 python3 -m pip install --upgrade pip setuptools wheel
-python3 -m pip install -r requirements.txt
+python3 -m pip install -r requirements.txt peft transformers
 python3 -m pip install llama-cpp-python[server] --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 || true
 
 # Register NVIDIA python libs directly in /usr/local/lib and system linker (fixes libcublas.so.12)

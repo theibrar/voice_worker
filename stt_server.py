@@ -65,11 +65,23 @@ for p in nvidia_search_paths:
 
 stt_model = None
 
+def ensure_peft_installed():
+    try:
+        import peft
+    except ImportError:
+        logger.info("⚡ Auto-installing missing NeMo dependency 'peft'...")
+        import subprocess, sys
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "peft", "transformers", "--no-cache-dir"])
+        except Exception as peft_err:
+            logger.warning(f"Could not auto-install peft: {peft_err}")
+
 def get_stt_model():
     global stt_model
     if stt_model is None:
         model_name = os.getenv("STT_MODEL_SIZE", "nvidia/parakeet-tdt-1.1b")
         logger.info(f"Loading NVIDIA Parakeet-TDT (v3) ASR Engine ({model_name})...")
+        ensure_peft_installed()
         try:
             import torch
             import nemo.collections.asr as nemo_asr
