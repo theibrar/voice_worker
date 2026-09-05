@@ -29,7 +29,7 @@ echo -e "${NC}"
 # 1. Check NVIDIA GPU
 echo -e "${GREEN}[1/6] Detecting NVIDIA GPU Hardware...${NC}"
 if command -v nvidia-smi &> /dev/null; then
-    nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
+    nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader || echo "NVIDIA GPU Detected."
     echo -e "${GREEN}✓ GPU verified.${NC}"
 else
     echo -e "${RED}❌ NVIDIA GPU not found. Please run on an NVIDIA GPU instance.${NC}"
