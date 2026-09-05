@@ -13,7 +13,25 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
 
 # Master Configuration & Auto-Resolver for Local vs Remote Execution
 PUBLIC_HOST = "77.54.200.11"
-API_KEY = "sk-ibrasoft-gpu-voice"
+
+import os
+
+def get_api_key():
+    env_key = os.getenv("GPU_API_KEY")
+    if env_key:
+        return env_key
+    env_file = os.path.join(os.path.dirname(__file__), ".env")
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, "r") as f:
+                for line in f:
+                    if line.startswith("GPU_API_KEY="):
+                        return line.split("=", 1)[1].strip()
+        except Exception:
+            pass
+    return "sk-ibrasoft-gpu-voice"
+
+API_KEY = get_api_key()
 
 def resolve_target():
     import socket

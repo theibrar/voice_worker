@@ -54,6 +54,7 @@ def start_services():
     logger.info("==================================================================")
 
     env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = os.getenv("CUDA_VISIBLE_DEVICES", "0")
     env["GPU_API_KEY"] = API_KEY
     env["VLLM_USE_V1"] = "0"
     env["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
