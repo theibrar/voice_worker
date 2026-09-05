@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Enterprise Voice AI GPU Node - Automated One-Click Installer
-# Hardware Target: 1x NVIDIA RTX 5060 Ti (16GB VRAM) | Intel Xeon E5-2673 v4
-# Public IP: 184.144.154.180
-# Stack: Parakeet TDT 0.6B INT8 -> Qwen 4B/7B -> Kokoro-82M (+ Silero VAD v5)
+# Hardware Target: 1x NVIDIA RTX 3060 (12GB VRAM) | Intel 13th Gen Core i9-13900K
+# Public IP: 202.215.0.218
+# Stack: Faster-Whisper -> Qwen 7B AWQ -> Kokoro-82M (+ Silero VAD v5)
 # ==============================================================================
 
 set -e
@@ -19,10 +19,10 @@ NC='\033[0m'
 echo -e "${CYAN}"
 echo "=============================================================================="
 echo "    🎙️  ENTERPRISE GPU VOICE AI WORKER - AUTOMATED INSTALLER                  "
-echo "    Target GPU : 1x NVIDIA RTX 5060 Ti (16GB VRAM)                            "
-echo "    CPU        : Intel Xeon E5-2673 v4 (40 vCPUs, 96.5GB RAM)                 "
-echo "    Public IP  : 184.144.154.180                                              "
-echo "    Pipeline   : Parakeet TDT 0.6B -> Qwen3-4B / Qwen2.5 -> Kokoro-82M        "
+echo "    Target GPU : 1x NVIDIA RTX 3060 (12GB VRAM)                              "
+echo "    CPU        : Intel 13th Gen Core i9-13900K (32 vCPUs, 128.5GB RAM)        "
+echo "    Public IP  : 202.215.0.218                                                "
+echo "    Pipeline   : Faster-Whisper -> Qwen2.5-7B -> Kokoro-82M                    "
 echo "=============================================================================="
 echo -e "${NC}"
 
@@ -60,31 +60,37 @@ apt-get install -y --no-install-recommends \
 
 # 3. Configure Environment & API Key
 echo -e "${GREEN}[3/6] Setting Up Secure Environment...${NC}"
-DEFAULT_KEY="sk-ibrasoft-gpu-voice"
-PUBLIC_IP="184.144.154.180"
+echo -e "${YELLOW}🔑 Please enter your Global GPU API Key:${NC}"
+if [ -t 0 ]; then
+    read -p "API Key [Press Enter for default: sk-ibrasoft-gpu-voice]: " INPUT_API_KEY
+else
+    INPUT_API_KEY=""
+fi
+DEFAULT_KEY=${INPUT_API_KEY:-"sk-ibrasoft-gpu-voice"}
+PUBLIC_IP="202.215.0.218"
 
 cat <<EOF > .env
 GPU_API_KEY=${DEFAULT_KEY}
 PUBLIC_IP=${PUBLIC_IP}
 LLM_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ
-GPU_MEM_UTIL=0.50
+GPU_MEM_UTIL=0.45
 MAX_MODEL_LEN=2048
 STT_MODEL_SIZE=distil-large-v3
-PORT_VLLM=56137
-PORT_TTS=56209
-PORT_STT=56546
-PORT_VAD=56756
-PORT_UI=56081
+PORT_VLLM=50287
+PORT_TTS=50869
+PORT_STT=50053
+PORT_VAD=50604
+PORT_UI=50057
 CUDA_MODULE_LOADING=LAZY
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 VLLM_USE_V1=0
 VLLM_USE_FLASHINFER_SAMPLER=0
 VLLM_WORKER_MULTIPROC_METHOD=spawn
-KOKORO_MODEL_PATH=/root/voice_worker/models/kokoro-v0_19.onnx
-KOKORO_VOICES_PATH=/root/voice_worker/models/voices.bin
+KOKORO_MODEL_PATH=/root/voice_worker/models/kokoro-v1.0.onnx
+KOKORO_VOICES_PATH=/root/voice_worker/models/voices-v1.0.bin
 EOF
 
-echo -e "${GREEN}✓ Environment configured with secure API key.${NC}"
+echo -e "${GREEN}✓ Environment configured with API key: ${DEFAULT_KEY:0:8}...${NC}"
 
 # 4. Install Python AI Libraries & llama.cpp Server
 echo -e "${GREEN}[4/6] Installing PyTorch, vLLM, Faster-Whisper, Kokoro, Silero, Gradio, & llama.cpp...${NC}"

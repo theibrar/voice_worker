@@ -17,13 +17,13 @@ from loguru import logger
 
 API_KEY = os.getenv("GPU_API_KEY", "sk-ibrasoft-gpu-voice")
 LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct-AWQ")
-GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.50")
-PUBLIC_IP = os.getenv("PUBLIC_IP", "184.144.154.180")
-PORT_VLLM = os.getenv("PORT_VLLM", "56137")
-PORT_TTS = os.getenv("PORT_TTS", "56209")
-PORT_STT = os.getenv("PORT_STT", "56546")
-PORT_VAD = os.getenv("PORT_VAD", "56756")
-PORT_UI = os.getenv("PORT_UI", "56081")
+GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.45")
+PUBLIC_IP = os.getenv("PUBLIC_IP", "202.215.0.218")
+PORT_VLLM = os.getenv("PORT_VLLM", "50287")
+PORT_TTS = os.getenv("PORT_TTS", "50869")
+PORT_STT = os.getenv("PORT_STT", "50053")
+PORT_VAD = os.getenv("PORT_VAD", "50604")
+PORT_UI = os.getenv("PORT_UI", "50057")
 
 processes = []
 
@@ -42,8 +42,8 @@ signal.signal(signal.SIGTERM, signal_handler)
 def start_services():
     logger.info("==================================================================")
     logger.info("   🎙️  ENTERPRISE GPU VOICE AI STACK - MASTER ORCHESTRATOR         ")
-    logger.info("   Hardware: 1x NVIDIA RTX 5060 Ti (16GB VRAM)                    ")
-    logger.info("   CPU: Intel Xeon E5-2673 v4 (40 vCPUs, 96.5GB RAM)              ")
+    logger.info("   Hardware: 1x NVIDIA RTX 3060 (12GB VRAM)                       ")
+    logger.info("   CPU: Intel 13th Gen Core i9-13900K (32 vCPUs, 128.5GB RAM)      ")
     logger.info(f"   Public IP: {PUBLIC_IP}                                          ")
     logger.info("==================================================================")
 
@@ -56,14 +56,14 @@ def start_services():
     env["CUDA_MODULE_LOADING"] = "LAZY"
     env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     
-    logger.info("📊 VRAM ALLOCATION BUDGET (16.0 GB Total):")
-    logger.info("   • Qwen3-4B Q4_K_M Weights      : ~2.5 GB")
-    logger.info("   • Parakeet TDT 0.6B INT8       : ~0.6 GB")
+    logger.info("📊 VRAM ALLOCATION BUDGET (12.0 GB Total):")
+    logger.info("   • Qwen2.5-7B AWQ Weights      : ~5.4 GB")
+    logger.info("   • Faster-Whisper FP16          : ~1.2 GB")
     logger.info("   • Kokoro-82M ONNX              : ~0.5 GB")
     logger.info("   • Silero VAD v5                : ~0.1 GB")
     logger.info("   • CUDA / PyTorch Contexts      : ~1.2 GB (Kernel & Driver overhead)")
-    logger.info("   • Total Static Base Footprint   : ~4.9 GB / 16.0 GB")
-    logger.info("   • FREE VRAM for 30 Callers     : ~11.1 GB (Continuous Batching Slots)")
+    logger.info("   • Total Static Base Footprint   : ~8.4 GB / 12.0 GB")
+    logger.info("   • FREE VRAM for Continuous Batch : ~3.6 GB (PagedAttention Slots)")
     logger.info("==================================================================")
     cublas_lib = "/usr/local/lib/python3.10/dist-packages/nvidia/cublas/lib"
     cudnn_lib = "/usr/local/lib/python3.10/dist-packages/nvidia/cudnn/lib"

@@ -12,15 +12,15 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
         pass
 
 # Master Configuration
-HOST = "184.144.154.180"
+HOST = "202.215.0.218"
 API_KEY = "sk-ibrasoft-gpu-voice"
 
 PORTS = {
-    "LLM": 56137,
-    "TTS": 56209,
-    "STT": 56546,
-    "VAD": 56756,
-    "UI":  56081
+    "LLM": 50287,
+    "TTS": 50869,
+    "STT": 50053,
+    "VAD": 50604,
+    "UI":  50057
 }
 
 GREEN = "\033[92m"
