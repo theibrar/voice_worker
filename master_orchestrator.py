@@ -17,7 +17,7 @@ from loguru import logger
 
 API_KEY = os.getenv("GPU_API_KEY", "sk-ibrasoft-gpu-voice")
 LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct-AWQ")
-GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.58")
+GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.50")
 PUBLIC_IP = os.getenv("PUBLIC_IP", "202.215.0.218")
 PORT_VLLM = os.getenv("PORT_VLLM", "50287")
 PORT_TTS = os.getenv("PORT_TTS", "50869")
@@ -124,8 +124,29 @@ def start_services():
     except Exception as e:
         logger.error(f"Could not start vLLM: {e}")
 
-    logger.info("⏳ Waiting 10s for vLLM to reserve GPU KV cache memory before launching STT...")
-    time.sleep(10.0)
+    # Poll http://127.0.0.1:8000/v1/models until vLLM engine is 100% active in VRAM
+    logger.info("⏳ Polling vLLM engine until GPU weights & KV cache are 100% ready...")
+    import urllib.request
+    import urllib.error
+
+    vllm_ready = False
+    for attempt in range(45):
+        time.sleep(1)
+        if p_llm.poll() is not None:
+            logger.error("vLLM process exited unexpectedly during startup.")
+            break
+        try:
+            req = urllib.request.Request("http://127.0.0.1:8000/v1/models", headers={"Authorization": f"Bearer {API_KEY}"})
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                if resp.status == 200:
+                    vllm_ready = True
+                    logger.success(f"✓ vLLM Engine initialized on CUDA and listening on Port 8000! (took {attempt+1}s)")
+                    break
+        except Exception:
+            pass
+
+    if not vllm_ready:
+        logger.warning("vLLM readiness polling timeout reached; proceeding with remaining engines...")
 
     # 2. Start STT Transcriber with Denoising (Port 8030)
     logger.info("► [2/5] Launching Streaming STT Engine (Port 8030)...")
