@@ -87,11 +87,20 @@ def get_stt_model():
             import nemo.collections.asr as nemo_asr
             
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            stt_model = nemo_asr.models.EncDecRNNTBModel.from_pretrained(model_name=model_name)
-            if device == "cuda":
+            if hasattr(nemo_asr.models, "ASRModel"):
+                stt_model = nemo_asr.models.ASRModel.from_pretrained(model_name=model_name)
+            elif hasattr(nemo_asr.models, "EncDecRNNTBModel"):
+                stt_model = nemo_asr.models.EncDecRNNTBModel.from_pretrained(model_name=model_name)
+            elif hasattr(nemo_asr.models, "EncDecCTCModelBPE"):
+                stt_model = nemo_asr.models.EncDecCTCModelBPE.from_pretrained(model_name=model_name)
+            else:
+                stt_model = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained(model_name=model_name)
+
+            if device == "cuda" and hasattr(stt_model, "cuda"):
                 stt_model = stt_model.cuda()
-            stt_model.eval()
-            logger.success(f"✓ NVIDIA Parakeet-TDT (v3) ASR Engine initialized on {device.upper()}.")
+            if hasattr(stt_model, "eval"):
+                stt_model.eval()
+            logger.success(f"✓ NVIDIA Parakeet-TDT (v3) ASR Engine ({model_name}) initialized on {device.upper()}.")
         except Exception as e:
             logger.warning(f"NeMo Parakeet-TDT init notice ({e}). Loading via Faster-Whisper runner...")
             try:

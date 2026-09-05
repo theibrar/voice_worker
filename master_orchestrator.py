@@ -14,6 +14,12 @@ import time
 import signal
 import subprocess
 from loguru import logger
+from dotenv import load_dotenv
+
+# Load environment variables from .env if present
+env_file = os.path.join(os.path.dirname(__file__), ".env")
+if os.path.exists(env_file):
+    load_dotenv(env_file, override=True)
 
 API_KEY = os.getenv("GPU_API_KEY", "sk-ibrasoft-gpu-voice")
 LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct-AWQ")
@@ -111,78 +117,30 @@ def start_services():
     processes.append(p_ui)
     time.sleep(1.5)
 
-    # 5. Start LLM Engine (Port 8000)
-    # High-Concurrency Continuous Batching Support (up to 30 concurrent active callers)
-    gguf_model_path = os.path.join(os.path.dirname(__file__), "models", "llm", "Qwen3-4B-Q4_K_M.gguf")
-    p_llm = None
+    # 5. Start vLLM Engine (Port 8000)
+    logger.info(f"► [5/5] Launching vLLM Engine ({LLM_MODEL}) on Port 8000...")
+    logger.info(f"   ⚡ Continuous Batching: max-num-seqs 32 (PagedAttention | API Key: {API_KEY})")
+    vllm_cmd = [
+        sys.executable, "-m", "vllm.entrypoints.openai.api_server",
+        "--model", LLM_MODEL,
+        "--port", "8000",
+        "--host", "0.0.0.0",
+        "--api-key", API_KEY,
+        "--gpu-memory-utilization", GPU_MEM_UTIL,
+        "--max-model-len", "2048",
+        "--max-num-seqs", "32",
+        "--enforce-eager",
+        "--trust-remote-code"
+    ]
+    if "awq" in LLM_MODEL.lower():
+        vllm_cmd.extend(["--quantization", "awq"])
 
-    if os.path.exists(gguf_model_path):
-        import shutil
-        logger.info(f"► [5/5] Launching llama.cpp Engine with Continuous Batching ({gguf_model_path})...")
-        logger.info("   ⚡ High-Concurrency Mode: --parallel 30 --cont-batching --flash-attn")
-        
-        llama_bin = shutil.which("llama-server") or "/usr/local/bin/llama-server"
-        if llama_bin and os.path.exists(llama_bin):
-            llama_cmd = [
-                llama_bin,
-                "-m", gguf_model_path,
-                "--port", "8000",
-                "--host", "0.0.0.0",
-                "--api-key", API_KEY,
-                "-ngl", "99",               # 100% GPU offload
-                "--parallel", "30",         # 30 concurrent active speakers
-                "--cont-batching",          # Continuous batching for simultaneous prompt processing
-                "-c", "32768",              # Global context memory
-                "--flash-attn",             # FlashAttention for fast KV cache
-                "--alias", "Qwen3-4B"
-            ]
-        else:
-            llama_cmd = [
-                sys.executable, "-m", "llama_cpp.server",
-                "--model", gguf_model_path,
-                "--port", "8000",
-                "--host", "0.0.0.0",
-                "--api_key", API_KEY,
-                "--n_gpu_layers", "99",
-                "--n_ctx", "32768"
-            ]
-        try:
-            p_llm = subprocess.Popen(llama_cmd, env=env)
-            time.sleep(2.0)
-            if p_llm.poll() is not None:
-                logger.warning(f"llama.cpp server exited (code {p_llm.returncode}). Automatically falling back to vLLM...")
-                p_llm = None
-            else:
-                processes.append(p_llm)
-                logger.success("✓ llama.cpp server spawned with 30 concurrent slots & continuous batching!")
-        except Exception as e:
-            logger.warning(f"Could not start llama.cpp server: {e}. Falling back to vLLM...")
-            p_llm = None
-
-    if p_llm is None:
-        logger.info(f"► [5/5] Launching vLLM Engine ({LLM_MODEL}) on Port 8000...")
-        logger.info("   ⚡ Continuous Batching: max-num-seqs 32 (Continuous PagedAttention)")
-        vllm_cmd = [
-            sys.executable, "-m", "vllm.entrypoints.openai.api_server",
-            "--model", LLM_MODEL,
-            "--port", "8000",
-            "--host", "0.0.0.0",
-            "--api-key", API_KEY,
-            "--gpu-memory-utilization", GPU_MEM_UTIL,
-            "--max-model-len", "2048",
-            "--max-num-seqs", "32",
-            "--enforce-eager",
-            "--trust-remote-code"
-        ]
-        if "awq" in LLM_MODEL.lower():
-            vllm_cmd.extend(["--quantization", "awq"])
-
-        try:
-            p_llm = subprocess.Popen(vllm_cmd, env=env)
-            processes.append(p_llm)
-            logger.success("✓ vLLM spawned with continuous batching (32 concurrent sequences)!")
-        except Exception as e:
-            logger.error(f"Could not start vLLM: {e}")
+    try:
+        p_llm = subprocess.Popen(vllm_cmd, env=env)
+        processes.append(p_llm)
+        logger.success("✓ vLLM spawned with continuous batching (32 concurrent sequences)!")
+    except Exception as e:
+        logger.error(f"Could not start vLLM: {e}")
 
     logger.success("\n==================================================================")
     logger.success("   🎉 ALL 5 GPU SERVICES ARE LIVE AND RUNNING!                   ")

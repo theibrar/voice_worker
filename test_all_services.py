@@ -11,17 +11,26 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
     except Exception:
         pass
 
-# Master Configuration
-HOST = "77.54.200.11"
+# Master Configuration & Auto-Resolver for Local vs Remote Execution
+PUBLIC_HOST = "77.54.200.11"
 API_KEY = "sk-ibrasoft-gpu-voice"
 
-PORTS = {
-    "LLM": 15363,
-    "TTS": 15173,
-    "STT": 15426,
-    "VAD": 15197,
-    "UI":  15290
-}
+def resolve_target():
+    import socket
+    local_ports = {"LLM": 8000, "TTS": 8088, "STT": 8030, "VAD": 8090, "UI": 7860}
+    public_ports = {"LLM": 15363, "TTS": 15173, "STT": 15426, "VAD": 15197, "UI": 15290}
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.5)
+        if s.connect_ex(('127.0.0.1', 8088)) == 0 or s.connect_ex(('127.0.0.1', 8000)) == 0 or s.connect_ex(('127.0.0.1', 8030)) == 0:
+            s.close()
+            return "127.0.0.1", local_ports
+        s.close()
+    except Exception:
+        pass
+    return PUBLIC_HOST, public_ports
+
+HOST, PORTS = resolve_target()
 
 GREEN = "\033[92m"
 RED = "\033[91m"
