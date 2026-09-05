@@ -17,7 +17,7 @@ from loguru import logger
 
 API_KEY = os.getenv("GPU_API_KEY", "sk-ibrasoft-gpu-voice")
 LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct-AWQ")
-GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.38")
+GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.58")
 PUBLIC_IP = os.getenv("PUBLIC_IP", "202.215.0.218")
 PORT_VLLM = os.getenv("PORT_VLLM", "50287")
 PORT_TTS = os.getenv("PORT_TTS", "50869")
@@ -68,7 +68,7 @@ def start_services():
     env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     
     logger.info("📊 VRAM ALLOCATION BUDGET (12.0 GB Total):")
-    logger.info("   • Qwen2.5-7B AWQ Weights (vLLM) : ~4.4 GB (0.38 utilization)")
+    logger.info("   • Qwen2.5-7B AWQ Weights + KV Cache (vLLM) : ~6.7 GB (0.58 utilization)")
     logger.info("   • Faster-Whisper FP16 (STT)     : ~1.2 GB")
     logger.info("   • Kokoro-82M ONNX (TTS)         : ~0.5 GB")
     logger.info("   • Silero VAD v5 (VAD)           : ~0.1 GB")
