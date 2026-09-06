@@ -51,9 +51,9 @@ def start_services():
 
     env = os.environ.copy()
     env["GPU_API_KEY"] = API_KEY
-    env["VLLM_USE_V1"] = "0"
     env["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
     env["VLLM_USE_FLASHINFER_SAMPLER"] = "0"
+    env["VLLM_PLUGINS"] = "" # Disable scanning optional external plugins (prevents nemo_speechlm notice)
     # Minimize CUDA context & PyTorch overhead across all 4 worker processes
     env["CUDA_MODULE_LOADING"] = "LAZY"
     env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
