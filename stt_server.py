@@ -70,37 +70,43 @@ def get_stt_model():
     try:
         import nemo.collections.asr as nemo_asr
         
-        # Load pre-trained Parakeet-TDT model
-        model = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(model_name=PARAKEET_MODEL_NAME)
+        # Load weights into host RAM (CPU) first to avoid 7.8GB peak allocation spike on GPU
+        logger.info(f"Unpacking {PARAKEET_MODEL_NAME} in system RAM first...")
+        model = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(
+            model_name=PARAKEET_MODEL_NAME,
+            map_location="cpu"
+        )
+        
         if device == "cuda":
-            model = model.cuda()
-            model = model.eval()
-            if hasattr(model, "half"):
-                try:
-                    model = model.half() # fp16 for fast inference and 50% lower VRAM
-                except Exception:
-                    pass
+            logger.info("Casting Parakeet-TDT to FP16 and offloading to GPU VRAM (~2.2 GB)...")
+            torch.cuda.empty_cache()
+            model = model.half().cuda().eval()
+            active_device = "cuda"
+            logger.success("✓ NVIDIA Parakeet-TDT Engine successfully running on GPU (CUDA FP16)!")
         else:
             model = model.cpu().eval()
+            active_device = "cpu"
+            logger.success("✓ NVIDIA Parakeet-TDT Engine initialized on CPU.")
 
         parakeet_model = model
-        active_device = device
-        logger.success(f"NVIDIA Parakeet-TDT Engine successfully loaded on {active_device.upper()}!")
         return parakeet_model
 
     except Exception as nemo_err:
-        logger.warning(f"NeMo direct load notice: {nemo_err}")
+        logger.warning(f"NeMo GPU load notice: {nemo_err}")
         
-        # If CUDA threw OOM or library error, fall back to CPU NeMo immediately
+        # Fallback to CPU NeMo if CUDA still has memory constraints
         if device == "cuda":
             try:
-                logger.info(f"Falling back to CPU allocation for Parakeet-TDT...")
+                logger.info("Falling back to CPU allocation for Parakeet-TDT...")
                 import nemo.collections.asr as nemo_asr
-                model = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(model_name=PARAKEET_MODEL_NAME)
+                model = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(
+                    model_name=PARAKEET_MODEL_NAME,
+                    map_location="cpu"
+                )
                 model = model.cpu().eval()
                 parakeet_model = model
                 active_device = "cpu"
-                logger.success("NVIDIA Parakeet-TDT Engine initialized on CPU (Safe Fallback).")
+                logger.success("✓ NVIDIA Parakeet-TDT Engine initialized on CPU (Safe Fallback).")
                 return parakeet_model
             except Exception as cpu_err:
                 logger.error(f"CPU NeMo load failed: {cpu_err}")

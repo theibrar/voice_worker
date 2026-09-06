@@ -12,7 +12,6 @@ vllm>=0.6.3
 # Neural Audio TTS & STT (NVIDIA Parakeet-TDT & Kokoro)
 kokoro-onnx>=0.3.1
 nemo_toolkit[asr]>=2.0.0
-peft>=0.11.0
 soundfile>=0.12.1
 scipy>=1.11.0
 numpy>=1.26.0

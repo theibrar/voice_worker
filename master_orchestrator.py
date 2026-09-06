@@ -19,7 +19,7 @@ from loguru import logger
 
 API_KEY = os.getenv("GPU_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct-AWQ")
-GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.50")
+GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.40")
 PUBLIC_IP = os.getenv("PUBLIC_IP", "77.54.200.11")
 PORT_VLLM = os.getenv("PORT_VLLM", "15460")
 PORT_TTS = os.getenv("PORT_TTS", "15188")
