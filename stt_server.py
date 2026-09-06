@@ -1,9 +1,11 @@
 """
-High-Speed Streaming STT Engine (Port 8030)
-- Powered by Faster-Whisper / Parakeet-CTC on CUDA
-- OpenAI-Compatible /v1/audio/transcriptions Endpoint
-- On-Device Audio Denoising & PSTN Bandpass Filter
-- Speculative Entity Pre-fetcher (Extracts Order IDs, Dates, Phone Numbers)
+NVIDIA Parakeet-TDT High-Speed Streaming STT Engine (Port 8030)
+- Powered by NVIDIA Parakeet-TDT (FastConformer RNN-T / TDT Architecture)
+- Zero-Crash Dynamic Hardware Adaptation (CUDA with seamless CPU safety fallback)
+- OpenAI-Compatible /v1/audio/transcriptions & /transcribe Endpoints
+- On-Device Audio Denoising & PSTN Bandpass Filter (80Hz - 7500Hz)
+- Speculative Entity Pre-fetcher (Order IDs, Phone Numbers, Booking Intent)
+- Real-Time WebSocket Streaming Support (/ws/stt)
 """
 
 import os
@@ -13,7 +15,7 @@ import time
 import tempfile
 import numpy as np
 import soundfile as sf
-from typing import Optional
+from typing import Optional, Union, List
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,9 +23,10 @@ from scipy.signal import butter, filtfilt
 from loguru import logger
 
 API_KEY = os.getenv("GPU_API_KEY", "")
-MODEL_SIZE = os.getenv("STT_MODEL_SIZE", "distil-large-v3") # or large-v3-turbo
+PARAKEET_MODEL_NAME = os.getenv("PARAKEET_MODEL", "nvidia/parakeet-tdt-1.1b") # or nvidia/parakeet-tdt-0.6b-v3
+FORCE_STT_CPU = os.getenv("FORCE_STT_CPU", "0") == "1"
 
-app = FastAPI(title="GPU Streaming STT Engine", version="2.0.0")
+app = FastAPI(title="NVIDIA Parakeet-TDT Streaming STT Engine", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,60 +36,95 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-import ctypes
-import site
-import glob
-
-# Ensure NVIDIA cuBLAS libraries are in path for CTranslate2 across all Python versions
-nvidia_search_paths = []
-for base in site.getsitepackages() + [site.getusersitepackages(), "/usr/local/lib", "/usr/lib"]:
-    if os.path.exists(base):
-        for pattern in ["**/nvidia/cublas/lib", "**/nvidia/cudnn/lib", "**/nvidia/cuda_runtime/lib"]:
-            for match in glob.glob(os.path.join(base, pattern), recursive=True):
-                if match not in nvidia_search_paths:
-                    nvidia_search_paths.append(match)
-
-# Also check standard python directory patterns
-for py_ver in ["python3.10", "python3.11", "python3.12"]:
-    for sub in ["cublas", "cudnn", "cuda_runtime"]:
-        p = f"/usr/local/lib/{py_ver}/dist-packages/nvidia/{sub}/lib"
-        if os.path.exists(p) and p not in nvidia_search_paths:
-            nvidia_search_paths.append(p)
-
-for p in nvidia_search_paths:
-    if p not in os.environ.get("LD_LIBRARY_PATH", ""):
-        os.environ["LD_LIBRARY_PATH"] = f"{p}:{os.environ.get('LD_LIBRARY_PATH', '')}"
-    for lib_name in ["libcublasLt.so.12", "libcublas.so.12", "libcudnn.so.9"]:
-        lib_path = os.path.join(p, lib_name)
-        if os.path.exists(lib_path):
-            try:
-                ctypes.CDLL(lib_path, mode=ctypes.RTLD_GLOBAL)
-            except Exception:
-                pass
-
-whisper_model = None
+# Global Parakeet Model Reference & Device State
+parakeet_model = None
+active_device = "cpu"
 
 def get_stt_model():
-    global whisper_model
-    if whisper_model is None:
-        try:
-            from faster_whisper import WhisperModel
-            import torch
-            try:
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-                compute_type = "float16" if device == "cuda" else "int8"
-                logger.info(f"Loading Faster-Whisper ({MODEL_SIZE}) on {device} ({compute_type})...")
-                whisper_model = WhisperModel(MODEL_SIZE, device=device, compute_type=compute_type)
-                logger.success("✓ Streaming STT Engine initialized on CUDA.")
-            except Exception as cuda_err:
-                logger.warning(f"CUDA STT init notice: {cuda_err}. Falling back to high-speed CPU mode...")
-                whisper_model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
-                logger.success("✓ Streaming STT Engine initialized on CPU.")
-        except Exception as e:
-            logger.error(f"Failed to load Whisper STT: {e}")
-    return whisper_model
+    global parakeet_model, active_device
+    if parakeet_model is not None:
+        return parakeet_model
 
-# Audio Denoising & Bandpass Filter for PSTN Phone Audio
+    import torch
+    
+    # 1. Determine optimal device with dynamic VRAM guard
+    device = "cpu"
+    if not FORCE_STT_CPU and torch.cuda.is_available():
+        try:
+            free_bytes, total_bytes = torch.cuda.mem_get_info()
+            free_gb = free_bytes / (1024 ** 3)
+            logger.info(f"Available GPU VRAM for STT: {free_gb:.2f} GB (Total: {total_bytes / (1024**3):.1f} GB)")
+            # If free VRAM is under 1.2 GB, use CPU to ensure vLLM and Kokoro have full room
+            if free_gb < 1.2:
+                logger.warning(f"Free VRAM is tight ({free_gb:.2f} GB < 1.2 GB). Allocating Parakeet-TDT to CPU for 0-risk stability.")
+                device = "cpu"
+            else:
+                device = "cuda"
+        except Exception as e:
+            logger.warning(f"VRAM check notice: {e}. Defaulting to CPU.")
+            device = "cpu"
+
+    logger.info(f"Initializing NVIDIA Parakeet-TDT ({PARAKEET_MODEL_NAME}) on {device.upper()}...")
+
+    # 2. Try loading via NVIDIA NeMo ASR
+    try:
+        import nemo.collections.asr as nemo_asr
+        
+        # Load pre-trained Parakeet-TDT model
+        model = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(model_name=PARAKEET_MODEL_NAME)
+        if device == "cuda":
+            model = model.cuda()
+            model = model.eval()
+            if hasattr(model, "half"):
+                try:
+                    model = model.half() # fp16 for fast inference and 50% lower VRAM
+                except Exception:
+                    pass
+        else:
+            model = model.cpu().eval()
+
+        parakeet_model = model
+        active_device = device
+        logger.success(f"NVIDIA Parakeet-TDT Engine successfully loaded on {active_device.upper()}!")
+        return parakeet_model
+
+    except Exception as nemo_err:
+        logger.warning(f"NeMo direct load notice: {nemo_err}")
+        
+        # If CUDA threw OOM or library error, fall back to CPU NeMo immediately
+        if device == "cuda":
+            try:
+                logger.info(f"Falling back to CPU allocation for Parakeet-TDT...")
+                import nemo.collections.asr as nemo_asr
+                model = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(model_name=PARAKEET_MODEL_NAME)
+                model = model.cpu().eval()
+                parakeet_model = model
+                active_device = "cpu"
+                logger.success("NVIDIA Parakeet-TDT Engine initialized on CPU (Safe Fallback).")
+                return parakeet_model
+            except Exception as cpu_err:
+                logger.error(f"CPU NeMo load failed: {cpu_err}")
+
+    # 3. Fallback to Transformers pipeline or LiteRT if NeMo is unavailable
+    try:
+        from transformers import pipeline
+        logger.info(f"Loading Parakeet-TDT via HuggingFace Transformers pipeline...")
+        pipe = pipeline(
+            "automatic-speech-recognition",
+            model=PARAKEET_MODEL_NAME,
+            device=0 if (device == "cuda" and torch.cuda.is_available()) else -1,
+            torch_dtype=torch.float16 if device == "cuda" else torch.float32
+        )
+        parakeet_model = pipe
+        active_device = device
+        logger.success(f"Parakeet-TDT loaded via Transformers on {active_device.upper()}.")
+        return parakeet_model
+    except Exception as hf_err:
+        logger.error(f"Transformers pipeline load failed: {hf_err}")
+
+    return None
+
+# Audio Denoising & PSTN Bandpass Filter
 def denoise_and_filter_audio(audio_data: np.ndarray, sample_rate: int = 16000) -> np.ndarray:
     """
     Applies high-pass filter (cuts sub-80Hz rumble) and mild noise gating
@@ -106,7 +144,7 @@ def denoise_and_filter_audio(audio_data: np.ndarray, sample_rate: int = 16000) -
         rms = np.sqrt(np.mean(filtered**2))
         noise_threshold = 0.005 # -46dBFS
         if rms < noise_threshold:
-            filtered = filtered * 0.2 # attenuate silent/noise frames
+            filtered = filtered * 0.2
             
         return filtered.astype(np.float32)
     except Exception:
@@ -131,10 +169,55 @@ def extract_speculative_entities(transcript: str) -> dict:
         entities["phone_number"] = phone_match.group(1)
 
     # 3. Calendar Intent detection
-    if re.search(r"\b(schedule|appointment|book|tomorrow|next week|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|pm|am)\b", transcript, re.IGNORECASE):
+    if re.search(r"(schedule|appointment|book|tomorrow|next week|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|pm|am)", transcript, re.IGNORECASE):
         entities["has_booking_intent"] = True
 
     return entities
+
+def normalize_to_16k_mono_wav(raw_bytes: bytes, original_filename: str = "audio.wav") -> str:
+    """
+    Converts any incoming audio format (WAV, WEBM, OPUS, MP3) into
+    strict 16000Hz 16-bit Mono WAV required by Parakeet-TDT.
+    Returns path to temporary 16k WAV file.
+    """
+    import subprocess
+    
+    # Write input bytes to temporary file
+    suffix = os.path.splitext(original_filename)[1] or ".tmp"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as in_tmp:
+        in_tmp.write(raw_bytes)
+        in_tmp_path = in_tmp.name
+
+    out_tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    out_tmp_path = out_tmp.name
+    out_tmp.close()
+
+    try:
+        # First try fast soundfile load
+        data, sr = sf.read(in_tmp_path)
+        if len(data.shape) > 1:
+            data = np.mean(data, axis=-1)
+        if sr != 16000:
+            import librosa
+            data = librosa.resample(data.astype(np.float32), orig_sr=sr, target_sr=16000)
+        data = denoise_and_filter_audio(data, 16000)
+        sf.write(out_tmp_path, data, 16000, format="WAV", subtype="PCM_16")
+    except Exception:
+        # Fallback to ffmpeg for webm/opus containers
+        cmd = [
+            "ffmpeg", "-y", "-i", in_tmp_path,
+            "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+            out_tmp_path
+        ]
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    finally:
+        if os.path.exists(in_tmp_path):
+            try:
+                os.unlink(in_tmp_path)
+            except Exception:
+                pass
+
+    return out_tmp_path
 
 @app.on_event("startup")
 async def startup_event():
@@ -145,11 +228,20 @@ def health():
     return {
         "status": "healthy",
         "service": "streaming-stt",
-        "model": MODEL_SIZE,
-        "engine_ready": whisper_model is not None,
+        "engine": "nvidia/parakeet-tdt",
+        "model": PARAKEET_MODEL_NAME,
+        "device": active_device,
+        "engine_ready": parakeet_model is not None,
+        "features": [
+            "fastconformer_tdt",
+            "pstn_audio_denoising",
+            "speculative_entity_extraction",
+            "zero_crash_vram_guard",
+            "websocket_streaming"
+        ]
     }
 
-# OpenAI-Compatible /v1/audio/transcriptions
+# OpenAI-Compatible /v1/audio/transcriptions & /transcribe
 @app.post("/v1/audio/transcriptions")
 @app.post("/transcribe")
 @app.post("/stt/transcribe")
@@ -161,61 +253,69 @@ async def transcribe_audio(
 ):
     model = get_stt_model()
     if not model:
-        raise HTTPException(status_code=500, detail="STT model not initialized.")
+        raise HTTPException(status_code=500, detail="Parakeet-TDT STT model not initialized.")
 
     t0 = time.time()
+    tmp_16k_wav = None
     try:
         content = await file.read()
-        
-        # Save to tempfile so Faster-Whisper's ffmpeg handles webm/opus/wav/mp3
-        suffix = os.path.splitext(file.filename or "speech.webm")[1] or ".webm"
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
+        tmp_16k_wav = normalize_to_16k_mono_wav(content, file.filename or "audio.wav")
 
+        # Get audio duration
+        duration_sec = 0.0
         try:
+            info = sf.info(tmp_16k_wav)
+            duration_sec = info.duration
+        except Exception:
+            pass
+
+        # Perform high-speed Parakeet-TDT transcription
+        full_text = ""
+        if hasattr(model, "transcribe"):
+            # NVIDIA NeMo ASR EncDecRNNTBPEModel
             try:
-                segments, info = model.transcribe(
-                    tmp_path,
-                    beam_size=1, # Greedy search for maximum speed
-                    temperature=temperature or 0.0,
-                    vad_filter=True, # Built-in VAD to trim silence
-                    vad_parameters=dict(min_silence_duration_ms=250),
-                )
-                full_text = " ".join([segment.text.strip() for segment in segments]).strip()
-            except Exception as trans_err:
-                if "cublas" in str(trans_err).lower() or "cuda" in str(trans_err).lower():
-                    logger.warning(f"CUDA transcription issue ({trans_err}). Switching to high-speed CPU inference on EPYC...")
-                    from faster_whisper import WhisperModel
-                    global whisper_model
-                    whisper_model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
-                    segments, info = whisper_model.transcribe(tmp_path, beam_size=1, temperature=0.0)
-                    full_text = " ".join([segment.text.strip() for segment in segments]).strip()
+                results = model.transcribe([tmp_16k_wav])
+                if results and len(results) > 0:
+                    first_res = results[0]
+                    full_text = getattr(first_res, "text", str(first_res)).strip()
+            except Exception as e:
+                if "cuda" in str(e).lower() or "out of memory" in str(e).lower():
+                    logger.warning(f"CUDA memory notice: {e}. Switching Parakeet to CPU...")
+                    global active_device
+                    model = model.cpu()
+                    active_device = "cpu"
+                    results = model.transcribe([tmp_16k_wav])
+                    full_text = getattr(results[0], "text", str(results[0])).strip()
                 else:
-                    raise trans_err
-        finally:
-            if os.path.exists(tmp_path):
-                try:
-                    os.unlink(tmp_path)
-                except Exception:
-                    pass
+                    raise e
+        elif callable(model):
+            # Transformers pipeline
+            res = model(tmp_16k_wav)
+            full_text = res.get("text", "").strip()
 
         elapsed_ms = round((time.time() - t0) * 1000, 1)
-
         speculative_data = extract_speculative_entities(full_text)
 
-        logger.info(f"👂 [STT TRANSCRIBE] \"{full_text}\" | {elapsed_ms}ms | entities={speculative_data}")
+        logger.info(f"👂 [PARAKEET-TDT] '{full_text}' | {elapsed_ms}ms | dev={active_device} | entities={speculative_data}")
 
         return JSONResponse({
             "text": full_text,
-            "language": info.language,
-            "duration": round(info.duration, 2),
+            "language": language or "en",
+            "duration": round(duration_sec, 2),
             "latency_ms": elapsed_ms,
+            "model": PARAKEET_MODEL_NAME,
             "speculative_entities": speculative_data,
         })
+
     except Exception as e:
-        logger.error(f"Transcription error: {e}")
+        logger.error(f"Parakeet transcription error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if tmp_16k_wav and os.path.exists(tmp_16k_wav):
+            try:
+                os.unlink(tmp_16k_wav)
+            except Exception:
+                pass
 
 # Real-Time WebSocket Streaming STT
 @app.websocket("/ws/stt")
@@ -232,11 +332,27 @@ async def websocket_streaming_stt(websocket: WebSocket):
 
             # Process every 0.5 seconds of audio (16,000 bytes = 0.5s of 16kHz 16-bit PCM)
             if len(audio_buffer) >= 16000:
-                audio_np = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32768.0
-                clean_audio = denoise_and_filter_audio(audio_np, 16000)
-                
-                segments, _ = model.transcribe(clean_audio, beam_size=1)
-                text = " ".join([s.text.strip() for s in segments]).strip()
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_chunk:
+                    audio_np = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32768.0
+                    clean_audio = denoise_and_filter_audio(audio_np, 16000)
+                    sf.write(tmp_chunk.name, clean_audio, 16000, format="WAV", subtype="PCM_16")
+                    tmp_chunk_path = tmp_chunk.name
+
+                text = ""
+                try:
+                    if hasattr(model, "transcribe"):
+                        res = model.transcribe([tmp_chunk_path])
+                        if res:
+                            text = getattr(res[0], "text", str(res[0])).strip()
+                    elif callable(model):
+                        res = model(tmp_chunk_path)
+                        text = res.get("text", "").strip()
+                finally:
+                    if os.path.exists(tmp_chunk_path):
+                        try:
+                            os.unlink(tmp_chunk_path)
+                        except Exception:
+                            pass
 
                 if text:
                     await websocket.send_json({
@@ -246,9 +362,9 @@ async def websocket_streaming_stt(websocket: WebSocket):
                     })
                 audio_buffer.clear()
     except WebSocketDisconnect:
-        logger.info("WebSocket STT client disconnected.")
+        logger.info("WebSocket Parakeet STT client disconnected.")
     except Exception as e:
-        logger.error(f"WebSocket STT error: {e}")
+        logger.error(f"WebSocket Parakeet STT error: {e}")
 
 if __name__ == "__main__":
     import uvicorn

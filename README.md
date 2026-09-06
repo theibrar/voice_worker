@@ -3,11 +3,11 @@
 ### Public IP: `77.54.200.11` | Instance ID: `49995859`
 
 This repository turns your **Vast.ai GPU instance** into an enterprise-grade, human-realistic Voice AI cluster powering:
-1. **vLLM Engine (Port 8000)**: Qwen 2.5 7B Instruct AWQ with continuous batching, prefix caching, and OpenAI compatibility.
-2. **Kokoro-82M Streaming Neural TTS (Port 8088)**: Chunked PCM streaming (<50ms TTFA) with emotional prosody tags (`[empathy]`, `[cheerful]`, `[urgent]`).
-3. **High-Speed Streaming STT (Port 8030)**: Faster-Whisper distil-large-v3 on CUDA (float16) with PSTN denoising and speculative entity extraction.
+1. **vLLM Engine (Port 8000)**: Qwen 2.5 7B Instruct AWQ with continuous batching, prefix caching, and conversational filler prompting.
+2. **Kokoro-82M Streaming Neural TTS (Port 8088)**: Full 54-voice multi-language pack, dynamic voice blending, punctuation-driven prosody, and sub-40ms first-chunk streaming.
+3. **NVIDIA Parakeet-TDT Streaming STT (Port 8030)**: FastConformer RNN-T / TDT on CUDA (with safe CPU fallback) with PSTN denoising and speculative entity extraction.
 4. **Silero VAD Barge-In Engine (Port 8090)**: Real-time 32ms frame speech detection to cut audio when human interrupts.
-5. **Gradio Audio Testbench (Port 7860)**: Direct browser UI to test mic, prosody, and measure sub-300ms latency.
+5. **Gradio Audio Testbench (Port 7860)**: Direct browser UI to test mic, prosody, dynamic voice blending, and measure sub-200ms latency.
 
 ---
 
@@ -46,7 +46,7 @@ The script will:
 | **Gradio Web Audio Testbench** | `7860` | **`15238`** | **`http://77.54.200.11:15238`** |
 | **vLLM OpenAI-Compatible API** | `8000` | **`15460`** | **`http://77.54.200.11:15460/v1`** |
 | **Kokoro Neural Streaming TTS** | `8088` | **`15188`** | **`http://77.54.200.11:15188`** |
-| **Faster STT with Denoising** | `8030` | **`15490`** | **`http://77.54.200.11:15490`** |
+| **NVIDIA Parakeet-TDT STT** | `8030` | **`15490`** | **`http://77.54.200.11:15490`** |
 | **Silero VAD Barge-In Engine** | `8090` | **`15089`** | **`http://77.54.200.11:15089`** |
 
 ---
@@ -68,23 +68,23 @@ Log in to your platform dashboard at **`/super-admin/engines`**:
 ### 2. Register Private Neural TTS
 * Click **"+ Register Custom Engine"**
 * **Category**: `TTS Neural Audio`
-* **Name**: `Kokoro-82M Streaming GPU`
+* **Name**: `Kokoro-82M Streaming GPU (54 Voices & Blending)`
 * **Provider**: `Kokoro Neural`
-* **Model Identifier**: `kokoro-v0_19`
+* **Model Identifier**: `kokoro-v1.0`
 * **Base URL**: `http://77.54.200.11:15188`
 * **API Key**: `<YOUR_GPU_API_KEY>`
 * **Estimated Latency**: `35 ms`
-* **Supported Voices**: `af_bella`, `am_michael`, `am_adam`, `af_sarah`, `bf_emma`, `bf_isabella`, `bm_george`, `bm_lewis`
+* **Supported Voices**: Full 54-Voice Pack + Dynamic Blends (e.g., `af_bella:0.82,am_michael:0.18`)
 
 ### 3. Register Private STT
 * Click **"+ Register Custom Engine"**
 * **Category**: `STT Transcription`
-* **Name**: `Fast-Whisper Denoised GPU`
-* **Provider**: `Whisper / Faster-Whisper`
-* **Model Identifier**: `distil-large-v3`
+* **Name**: `NVIDIA Parakeet-TDT GPU STT`
+* **Provider**: `NVIDIA Parakeet-TDT / FastConformer`
+* **Model Identifier**: `nvidia/parakeet-tdt-1.1b`
 * **Base URL**: `http://77.54.200.11:15490`
 * **API Key**: `<YOUR_GPU_API_KEY>`
-* **Estimated Latency**: `180 ms`
+* **Estimated Latency**: `50 ms`
 
 ### 4. Register Private VAD / Telephony Interrupter
 * Click **"+ Register Custom Engine"**

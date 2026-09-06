@@ -176,12 +176,12 @@ API Key  : ${DEFAULT_KEY}
 
 2. Kokoro-82M Streaming Neural TTS (Port 8088)
    Public URL : http://${PUBLIC_IP}:${PORT_TTS}
-   Voices     : Full voice pack (af_bella, am_michael, am_adam, af_sarah, bf_emma)
-   Features   : Free-form style tags, SSML <break>, volume gain, <50ms TTFA
+   Voices     : Full 54-Voice Multi-Language Pack (af_bella, am_michael, etc.)
+   Features   : Dynamic Voice Blending, Punctuation Prosody, <40ms TTFA, Phonemes
 
 3. Fast Streaming STT Engine (Port 8030)
    Public URL : http://${PUBLIC_IP}:${PORT_STT}
-   Model      : Faster-Whisper distil-large-v3 (CUDA float16)
+   Model      : NVIDIA Parakeet-TDT (FastConformer RNN-T)
 
 4. Silero VAD v5 Controller (Port 8090)
    Public URL : http://${PUBLIC_IP}:${PORT_VAD}

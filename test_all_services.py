@@ -113,15 +113,15 @@ def main():
     test_endpoint("Kokoro TTS Health", f"http://{HOST}:{PORTS['TTS']}/health")
     
     tts_payload = json.dumps({
-        "text": "[cheerful] Hello! System is online.",
-        "voice": "am_michael",
-        "speed": 1.0
+        "text": "Oh! System is fully operational, and voice blending is active.",
+        "voice": "af_bella:0.82,am_michael:0.18",
+        "speed": 1.05
     }).encode('utf-8')
-    test_endpoint("Kokoro Synthesis", f"http://{HOST}:{PORTS['TTS']}/synthesize", method="POST", headers=tts_headers, data=tts_payload)
+    test_endpoint("Kokoro Synthesis (Blend)", f"http://{HOST}:{PORTS['TTS']}/synthesize", method="POST", headers=tts_headers, data=tts_payload)
 
-    # 3. Test Faster-Whisper STT
-    print(f"► Testing [3/5] Faster-Whisper CUDA STT (Port {PORTS['STT']})...")
-    test_endpoint("STT Health Probe", f"http://{HOST}:{PORTS['STT']}/health")
+    # 3. Test NVIDIA Parakeet-TDT STT
+    print(f"► Testing [3/5] NVIDIA Parakeet-TDT STT (Port {PORTS['STT']})...")
+    test_endpoint("Parakeet-TDT STT", f"http://{HOST}:{PORTS['STT']}/health")
 
     # 4. Test Silero VAD
     print(f"► Testing [4/5] Silero VAD Barge-In Engine (Port {PORTS['VAD']})...")

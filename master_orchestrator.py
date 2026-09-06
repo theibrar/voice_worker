@@ -59,13 +59,13 @@ def start_services():
     env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     
     logger.info("📊 VRAM ALLOCATION BUDGET (16.0 GB Total):")
-    logger.info("   • Qwen3-4B Q4_K_M Weights      : ~2.5 GB")
-    logger.info("   • Parakeet TDT 0.6B INT8       : ~0.6 GB")
-    logger.info("   • Kokoro-82M ONNX              : ~0.5 GB")
+    logger.info("   • Qwen2.5-7B AWQ Weights       : ~5.3 GB")
+    logger.info("   • NVIDIA Parakeet-TDT ASR      : ~1.2 GB (Auto-fallback to CPU if VRAM tight)")
+    logger.info("   • Kokoro-82M ONNX (54 Voices)  : ~0.5 GB")
     logger.info("   • Silero VAD v5                : ~0.1 GB")
     logger.info("   • CUDA / PyTorch Contexts      : ~1.2 GB (Kernel & Driver overhead)")
-    logger.info("   • Total Static Base Footprint   : ~4.9 GB / 16.0 GB")
-    logger.info("   • FREE VRAM for 30 Callers     : ~11.1 GB (Continuous Batching Slots)")
+    logger.info("   • Total Static Base Footprint   : ~8.3 GB / 16.0 GB")
+    logger.info("   • FREE VRAM for Callers / KV    : ~7.7 GB (Continuous Batching Slots)")
     logger.info("==================================================================")
     cublas_lib = "/usr/local/lib/python3.10/dist-packages/nvidia/cublas/lib"
     cudnn_lib = "/usr/local/lib/python3.10/dist-packages/nvidia/cudnn/lib"
@@ -95,84 +95,38 @@ def start_services():
     # 1. Start LLM Engine FIRST (Port 8000)
     # Allows vLLM to profile & allocate its memory pool without VRAM contention
     # =========================================================================
-    gguf_model_path = os.path.join(os.path.dirname(__file__), "models", "llm", "Qwen3-4B-Q4_K_M.gguf")
     p_llm = None
+    logger.info(f"► [1/5] Launching vLLM Engine ({LLM_MODEL}) on Port 8000 FIRST...")
+    logger.info(f"   ⚡ Continuous Batching: max-num-seqs 32 | GPU Utilization: {GPU_MEM_UTIL}")
+    vllm_cmd = [
+        sys.executable, "-u", "-m", "vllm.entrypoints.openai.api_server",
+        "--model", LLM_MODEL,
+        "--port", "8000",
+        "--host", "0.0.0.0",
+        "--gpu-memory-utilization", GPU_MEM_UTIL,
+        "--max-model-len", "2048",
+        "--max-num-seqs", "32",
+        "--enforce-eager",
+        "--trust-remote-code"
+    ]
+    if API_KEY:
+        vllm_cmd.extend(["--api-key", API_KEY])
+    if "awq" in LLM_MODEL.lower():
+        vllm_cmd.extend(["--quantization", "awq"])
 
-    if os.path.exists(gguf_model_path):
-        import shutil
-        logger.info(f"► [1/5] Launching llama.cpp Engine with Continuous Batching ({gguf_model_path})...")
-        logger.info("   ⚡ High-Concurrency Mode: --parallel 30 --cont-batching --flash-attn")
-        
-        llama_bin = shutil.which("llama-server") or "/usr/local/bin/llama-server"
-        if llama_bin and os.path.exists(llama_bin):
-            llama_cmd = [
-                llama_bin,
-                "-m", gguf_model_path,
-                "--port", "8000",
-                "--host", "0.0.0.0",
-                "-ngl", "99",
-                "--parallel", "30",
-                "--cont-batching",
-                "-c", "32768",
-                "--flash-attn",
-                "--alias", "Qwen3-4B"
-            ]
-            if API_KEY:
-                llama_cmd.extend(["--api-key", API_KEY])
-        else:
-            llama_cmd = [
-                sys.executable, "-u", "-m", "llama_cpp.server",
-                "--model", gguf_model_path,
-                "--port", "8000",
-                "--host", "0.0.0.0",
-                "--n_gpu_layers", "99",
-                "--n_ctx", "32768"
-            ]
-            if API_KEY:
-                llama_cmd.extend(["--api_key", API_KEY])
-        try:
-            p_llm = subprocess.Popen(llama_cmd, env=env)
-            time.sleep(2.0)
-            if p_llm.poll() is not None:
-                logger.warning(f"llama.cpp server exited (code {p_llm.returncode}). Automatically falling back to vLLM...")
-                p_llm = None
-            else:
-                processes.append(p_llm)
-                logger.success("✓ llama.cpp server spawned with 30 concurrent slots & continuous batching!")
-        except Exception as e:
-            logger.warning(f"Could not start llama.cpp server: {e}. Falling back to vLLM...")
-            p_llm = None
-
-    if p_llm is None:
-        logger.info(f"► [1/5] Launching vLLM Engine ({LLM_MODEL}) on Port 8000 FIRST...")
-        logger.info(f"   ⚡ Continuous Batching: max-num-seqs 32 | GPU Utilization: {GPU_MEM_UTIL}")
-        vllm_cmd = [
-            sys.executable, "-u", "-m", "vllm.entrypoints.openai.api_server",
-            "--model", LLM_MODEL,
-            "--port", "8000",
-            "--host", "0.0.0.0",
-            "--gpu-memory-utilization", GPU_MEM_UTIL,
-            "--max-model-len", "2048",
-            "--max-num-seqs", "32",
-            "--enforce-eager",
-            "--trust-remote-code"
-        ]
-        if API_KEY:
-            vllm_cmd.extend(["--api-key", API_KEY])
-        if "awq" in LLM_MODEL.lower():
-            vllm_cmd.extend(["--quantization", "awq"])
-
-        try:
-            p_llm = subprocess.Popen(vllm_cmd, env=env)
-            processes.append(p_llm)
-            logger.success("✓ vLLM process spawned. Waiting for CUDA memory allocation & engine readiness...")
-        except Exception as e:
-            logger.error(f"Could not start vLLM: {e}")
+    try:
+        p_llm = subprocess.Popen(vllm_cmd, env=env)
+        processes.append(p_llm)
+        logger.success("✓ vLLM process spawned. Waiting for CUDA memory allocation & engine readiness...")
+    except Exception as e:
+        logger.error(f"Could not start vLLM: {e}")
 
     # Wait for LLM on Port 8000 before starting subsequent services
     logger.info("⏳ Waiting for LLM Engine to load weights and listen on Port 8000...")
     llm_ready = False
     t_wait_start = time.time()
+    last_progress_log = time.time()
+    
     while time.time() - t_wait_start < 180:
         if p_llm and p_llm.poll() is not None:
             logger.error(f"❌ LLM process terminated with exit code {p_llm.returncode}!")
@@ -192,9 +146,12 @@ def start_services():
         except Exception:
             pass
         
-        elapsed = int(time.time() - t_wait_start)
-        if elapsed > 0 and elapsed % 10 == 0:
-            logger.info(f"   ... still initializing LLM ({elapsed}s elapsed) ...")
+        # Log progress every 5 seconds reliably
+        if time.time() - last_progress_log >= 5.0:
+            elapsed = int(time.time() - t_wait_start)
+            logger.info(f"   ⏳ Initializing LLM in VRAM ({elapsed}s elapsed)...")
+            last_progress_log = time.time()
+            
         time.sleep(2)
 
     if llm_ready:
@@ -213,7 +170,7 @@ def start_services():
     # =========================================================================
     # 3. Start STT Transcriber with Denoising (Port 8030)
     # =========================================================================
-    logger.info("► [3/5] Launching Streaming STT Engine (Port 8030)...")
+    logger.info("► [3/5] Launching NVIDIA Parakeet-TDT Streaming STT Engine (Port 8030)...")
     p_stt = subprocess.Popen([sys.executable, "-u", "stt_server.py"], env=env)
     processes.append(p_stt)
     time.sleep(2.0)
@@ -238,8 +195,8 @@ def start_services():
     logger.success("   🎉 ALL 5 GPU SERVICES ARE LIVE AND RUNNING!                   ")
     logger.success("==================================================================")
     logger.info(f"  • vLLM OpenAI API : http://{PUBLIC_IP}:{PORT_VLLM}/v1 (Port 8000)")
-    logger.info(f"  • Kokoro TTS API  : http://{PUBLIC_IP}:{PORT_TTS} (Port 8088)")
-    logger.info(f"  • STT Audio API   : http://{PUBLIC_IP}:{PORT_STT} (Port 8030)")
+    logger.info(f"  • Kokoro TTS (54v): http://{PUBLIC_IP}:{PORT_TTS} (Port 8088)")
+    logger.info(f"  • Parakeet STT API: http://{PUBLIC_IP}:{PORT_STT} (Port 8030)")
     logger.info(f"  • Silero VAD API  : http://{PUBLIC_IP}:{PORT_VAD} (Port 8090)")
     logger.info(f"  • Gradio UI Web   : http://{PUBLIC_IP}:{PORT_UI} (Port 7860)")
     logger.info(f"  • API Key         : {API_KEY}")
