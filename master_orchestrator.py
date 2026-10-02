@@ -46,13 +46,16 @@ except Exception:
 
 # Dynamically calculate safe vLLM memory utilization based on card size
 if total_vram_gb >= 22.0:
-    auto_vllm_util = 0.65   # 24GB+ (RTX 3090, 4090, A5000)
+    auto_vllm_util = 0.75   # 24GB+ (RTX 3090, 4090, A5000)
 elif total_vram_gb >= 15.0:
-    auto_vllm_util = 0.52   # 16GB (RTX 5060 Ti, RTX 4080): ~8.2 GB for vLLM, leaves ~7.7 GB for STT/TTS
+    auto_vllm_util = 0.68   # 16GB (RTX 5060 Ti, RTX 4080): ~10.8 GB for vLLM (4.5GB model + 4GB KV cache), leaves ~5.1 GB for STT/TTS
 else:
-    auto_vllm_util = 0.58   # 12GB (RTX 3060, 4070)
+    auto_vllm_util = 0.62   # 12GB (RTX 3060, 4070)
 
 GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", str(auto_vllm_util))
+# Ensure GPU_MEM_UTIL is at least 0.68 on 15GB+ cards if set too low in .env
+if total_vram_gb >= 15.0 and float(GPU_MEM_UTIL) < 0.65:
+    GPU_MEM_UTIL = "0.68"
 
 processes = []
 
@@ -204,8 +207,8 @@ def start_services():
             try:
                 with open("vllm.log", "r", encoding="utf-8", errors="ignore") as f:
                     log_lines = f.readlines()
-                    logger.error("════════════════════ vLLM CRASH LOG (LAST 40 LINES) ════════════════════")
-                    for line in log_lines[-40:]:
+                    logger.error("════════════════════ vLLM CRASH LOG (LAST 75 LINES) ════════════════════")
+                    for line in log_lines[-75:]:
                         print(f"   [vLLM stderr] {line.rstrip()}")
                     logger.error("═════════════════════════════════════════════════════════════════════════")
             except Exception as read_err:
