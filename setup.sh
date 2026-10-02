@@ -98,7 +98,7 @@ echo -e "${GREEN}✓ Environment configured. Set your GPU_API_KEY in .env file.$
 # 4. Install Python AI Libraries & llama.cpp Server
 echo -e "${GREEN}[4/6] Installing PyTorch, vLLM, NeMo, Kokoro, Silero, & Gradio...${NC}"
 python3 -m pip install --upgrade pip setuptools wheel
-python3 -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12
+python3 -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12 peft accelerate
 python3 -m pip install -r requirements.txt
 
 # Register all NVIDIA python libraries directly into system linker

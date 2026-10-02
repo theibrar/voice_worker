@@ -78,6 +78,8 @@ def start_services():
 
     env = os.environ.copy()
     env["GPU_API_KEY"] = API_KEY
+    env["VLLM_USE_V1"] = "0"
+    os.environ["VLLM_USE_V1"] = "0"
     env["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
     env["VLLM_USE_FLASHINFER_SAMPLER"] = "0"
     env["VLLM_PLUGINS"] = ""
@@ -105,6 +107,13 @@ def start_services():
                         ctypes.CDLL(f_path, mode=ctypes.RTLD_GLOBAL)
                     except Exception:
                         pass
+
+    # Ensure peft is installed to prevent vLLM NeMo plugin crash
+    try:
+        import peft
+    except ImportError:
+        logger.info("⚡ Auto-installing peft & accelerate to prevent plugin import errors...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "peft", "accelerate"], check=False)
 
     env["PYTHONUNBUFFERED"] = "1"
 
