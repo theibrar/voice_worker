@@ -58,9 +58,21 @@ apt-get install -y --no-install-recommends \
     python3-pip \
     python3-dev \
     build-essential \
+    ninja-build \
     libespeak-ng-dev \
     espeak-ng \
     libcublas-12-0 || true
+
+# Auto-link nvcc compiler if installed across any cuda-12 versions
+for c_dir in /usr/local/cuda-12.* /usr/local/cuda; do
+    if [ -f "$c_dir/bin/nvcc" ]; then
+        mkdir -p /usr/local/cuda/bin
+        ln -sf "$c_dir/bin/nvcc" /usr/local/cuda/bin/nvcc
+        ln -sf "$c_dir/bin/nvcc" /usr/local/bin/nvcc
+        ln -sf "$c_dir/bin/nvcc" /usr/bin/nvcc
+        break
+    fi
+done
 
 # 3. Configure Environment & API Key
 echo -e "${GREEN}[3/6] Setting Up Secure Environment...${NC}"
@@ -86,8 +98,9 @@ PORT_VAD=59929
 PORT_UI=59835
 CUDA_MODULE_LOADING=LAZY
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-VLLM_USE_V1=0
 VLLM_USE_FLASHINFER_SAMPLER=0
+FLASHINFER_FORCE_DISABLE=1
+VLLM_PLUGINS=none
 VLLM_WORKER_MULTIPROC_METHOD=spawn
 KOKORO_MODEL_PATH=/root/voice_worker/models/kokoro-v1.0.onnx
 KOKORO_VOICES_PATH=/root/voice_worker/models/voices-v1.0.bin

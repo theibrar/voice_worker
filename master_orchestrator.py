@@ -78,13 +78,29 @@ def start_services():
 
     env = os.environ.copy()
     env["GPU_API_KEY"] = API_KEY
-    env["VLLM_USE_V1"] = "0"
-    os.environ["VLLM_USE_V1"] = "0"
     env["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
     env["VLLM_USE_FLASHINFER_SAMPLER"] = "0"
-    env["VLLM_PLUGINS"] = ""
+    os.environ["VLLM_USE_FLASHINFER_SAMPLER"] = "0"
+    env["FLASHINFER_FORCE_DISABLE"] = "1"
+    os.environ["FLASHINFER_FORCE_DISABLE"] = "1"
+    env["VLLM_PLUGINS"] = "none"
+    os.environ["VLLM_PLUGINS"] = "none"
     env["CUDA_MODULE_LOADING"] = "LAZY"
     env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+    
+    # Auto-detect nvcc across cuda-12 installations to satisfy JIT compilers if needed
+    for c_dir in ["/usr/local/cuda-12.8", "/usr/local/cuda-12.6", "/usr/local/cuda-12.5", "/usr/local/cuda-12.4", "/usr/local/cuda-12.2", "/usr/local/cuda-12.1", "/usr/local/cuda"]:
+        nvcc_bin = os.path.join(c_dir, "bin", "nvcc")
+        if os.path.exists(nvcc_bin):
+            os.environ["PATH"] = f"{os.path.join(c_dir, 'bin')}:{os.environ.get('PATH', '')}"
+            env["PATH"] = os.environ["PATH"]
+            if not os.path.exists("/usr/local/cuda/bin/nvcc"):
+                try:
+                    os.makedirs("/usr/local/cuda/bin", exist_ok=True)
+                    os.symlink(nvcc_bin, "/usr/local/cuda/bin/nvcc")
+                except Exception:
+                    pass
+            break
     
     cublas_lib = "/usr/local/lib/python3.10/dist-packages/nvidia/cublas/lib"
     cudnn_lib = "/usr/local/lib/python3.10/dist-packages/nvidia/cudnn/lib"
@@ -112,7 +128,7 @@ def start_services():
     try:
         import peft
     except ImportError:
-        logger.info("⚡ Auto-installing peft & accelerate to prevent plugin import errors...")
+        logger.info("⚡ Auto-installing peft & accelerate...")
         subprocess.run([sys.executable, "-m", "pip", "install", "peft", "accelerate"], check=False)
 
     env["PYTHONUNBUFFERED"] = "1"
@@ -166,11 +182,12 @@ def start_services():
     if "awq" in LLM_MODEL.lower():
         vllm_cmd.extend(["--quantization", "awq"])
 
+    vllm_log_file = open("vllm.log", "w", encoding="utf-8")
     p_llm = None
     try:
-        p_llm = subprocess.Popen(vllm_cmd, env=env)
+        p_llm = subprocess.Popen(vllm_cmd, env=env, stdout=vllm_log_file, stderr=subprocess.STDOUT)
         processes.append(p_llm)
-        logger.success("✓ vLLM process spawned. Initializing weights...")
+        logger.success("✓ vLLM process spawned. Initializing weights (logging to vllm.log)...")
     except Exception as e:
         logger.error(f"Could not start vLLM: {e}")
 
@@ -182,7 +199,17 @@ def start_services():
     
     while time.time() - t_wait_start < 180:
         if p_llm and p_llm.poll() is not None:
+            vllm_log_file.flush()
             logger.error(f"❌ LLM process terminated with exit code {p_llm.returncode}!")
+            try:
+                with open("vllm.log", "r", encoding="utf-8", errors="ignore") as f:
+                    log_lines = f.readlines()
+                    logger.error("════════════════════ vLLM CRASH LOG (LAST 40 LINES) ════════════════════")
+                    for line in log_lines[-40:]:
+                        print(f"   [vLLM stderr] {line.rstrip()}")
+                    logger.error("═════════════════════════════════════════════════════════════════════════")
+            except Exception as read_err:
+                logger.error(f"Could not read vllm.log: {read_err}")
             break
         try:
             req = urllib.request.Request("http://127.0.0.1:8000/health")
