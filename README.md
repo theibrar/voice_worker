@@ -15,7 +15,7 @@ This repository turns your **Vast.ai GPU instance** into an enterprise-grade, hu
 
 ### Step 1: SSH into your Vast.ai GPU instance
 ```bash
-ssh -p 59924 root@77.104.167.149
+ssh -p 59617 root@77.104.167.149
 ```
 
 ### Step 2: Clone or Pull this repository
@@ -43,11 +43,11 @@ The script will:
 
 | Service | Container Port | Vast.ai Public Mapped Port | Public Base URL |
 | :--- | :--- | :--- | :--- |
-| **Gradio Web Audio Testbench** | `7860` | **`59726`** | **`http://77.104.167.149:59726`** |
-| **vLLM OpenAI-Compatible API** | `8000` | **`59656`** | **`http://77.104.167.149:59656/v1`** |
-| **Kokoro Neural Streaming TTS** | `8088` | **`59730`** | **`http://77.104.167.149:59730`** |
-| **NVIDIA Parakeet-TDT STT** | `8030` | **`59901`** | **`http://77.104.167.149:59901`** |
-| **Silero VAD Barge-In Engine** | `8090` | **`59838`** | **`http://77.104.167.149:59838`** |
+| **Gradio Web Audio Testbench** | `7860` | **`59835`** | **`http://77.104.167.149:59835`** |
+| **vLLM OpenAI-Compatible API** | `8000` | **`59982`** | **`http://77.104.167.149:59982/v1`** |
+| **Kokoro Neural Streaming TTS** | `8088` | **`59643`** | **`http://77.104.167.149:59643`** |
+| **NVIDIA Parakeet-TDT STT** | `8030` | **`59805`** | **`http://77.104.167.149:59805`** |
+| **Silero VAD Barge-In Engine** | `8090` | **`59929`** | **`http://77.104.167.149:59929`** |
 
 ---
 
@@ -61,7 +61,7 @@ Log in to your platform dashboard at **`/super-admin/engines`**:
 * **Name**: `Qwen-2.5-7B Private GPU`
 * **Provider**: `OpenAI-Compatible vLLM`
 * **Model Identifier**: `Qwen/Qwen2.5-7B-Instruct-AWQ`
-* **Base URL**: `http://77.104.167.149:59656/v1`
+* **Base URL**: `http://77.104.167.149:59982/v1`
 * **API Key**: `<YOUR_GPU_API_KEY>`
 * **Estimated Latency**: `45 ms`
 
@@ -71,7 +71,7 @@ Log in to your platform dashboard at **`/super-admin/engines`**:
 * **Name**: `Kokoro-82M Streaming GPU (54 Voices & Blending)`
 * **Provider**: `Kokoro Neural`
 * **Model Identifier**: `kokoro-v1.0`
-* **Base URL**: `http://77.104.167.149:59730`
+* **Base URL**: `http://77.104.167.149:59643`
 * **API Key**: `<YOUR_GPU_API_KEY>`
 * **Estimated Latency**: `35 ms`
 * **Supported Voices**: Full 54-Voice Pack + Dynamic Blends (e.g., `af_bella:0.82,am_michael:0.18`)
@@ -81,8 +81,8 @@ Log in to your platform dashboard at **`/super-admin/engines`**:
 * **Category**: `STT Transcription`
 * **Name**: `NVIDIA Parakeet-TDT GPU STT`
 * **Provider**: `NVIDIA Parakeet-TDT / FastConformer`
-* **Model Identifier**: `nvidia/parakeet-tdt-1.1b`
-* **Base URL**: `http://77.104.167.149:59901`
+* **Model Identifier**: `nvidia/parakeet-tdt-0.6b-v3`
+* **Base URL**: `http://77.104.167.149:59805`
 * **API Key**: `<YOUR_GPU_API_KEY>`
 * **Estimated Latency**: `50 ms`
 
@@ -92,8 +92,8 @@ Log in to your platform dashboard at **`/super-admin/engines`**:
 * **Name**: `Silero VAD v5 Neural`
 * **Provider**: `Silero VAD`
 * **Model Identifier**: `silero-v5`
-* **Base URL**: `http://77.104.167.149:59838`
-* **WebSocket URL**: `ws://77.104.167.149:59838/vad/stream`
+* **Base URL**: `http://77.104.167.149:59929`
+* **WebSocket URL**: `ws://77.104.167.149:59929/vad/stream`
 * **API Key**: `<YOUR_GPU_API_KEY>`
 * **Estimated Latency**: `15 ms`
 
@@ -108,4 +108,4 @@ Log in to your platform dashboard at **`/super-admin/engines`**:
   *(Press `Ctrl+B` then `D` to detach without stopping services)*
 
 * **Test Live Mic in Browser**:
-  Open `http://77.104.167.149:59726` in your web browser to test talking into your microphone and measuring real-time turn latency!
+  Open `http://77.104.167.149:59835` in your web browser to test talking into your microphone and measuring real-time turn latency!

@@ -46,16 +46,20 @@ apt-get update -y
 apt-get install -y --no-install-recommends \
     ffmpeg \
     libsndfile1 \
+    libsndfile1-dev \
     sox \
     libsox-fmt-all \
+    libsox-dev \
     git \
     wget \
     curl \
     tmux \
+    htop \
     python3-pip \
     python3-dev \
     build-essential \
     libespeak-ng-dev \
+    espeak-ng \
     libcublas-12-0 || true
 
 # 3. Configure Environment & API Key
@@ -72,35 +76,33 @@ cat <<EOF > .env
 GPU_API_KEY=${DEFAULT_KEY}
 PUBLIC_IP=${PUBLIC_IP}
 LLM_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ
-GPU_MEM_UTIL=0.40
+GPU_MEM_UTIL=0.38
 MAX_MODEL_LEN=2048
 STT_MODEL_SIZE=distil-large-v3
-PORT_VLLM=59656
-PORT_TTS=59730
-PORT_STT=59901
-PORT_VAD=59838
-PORT_UI=59726
+PORT_VLLM=59982
+PORT_TTS=59643
+PORT_STT=59805
+PORT_VAD=59929
+PORT_UI=59835
 CUDA_MODULE_LOADING=LAZY
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 VLLM_USE_V1=0
 VLLM_USE_FLASHINFER_SAMPLER=0
 VLLM_WORKER_MULTIPROC_METHOD=spawn
-KOKORO_MODEL_PATH=/root/voice_worker/models/kokoro-v0_19.onnx
-KOKORO_VOICES_PATH=/root/voice_worker/models/voices.bin
+KOKORO_MODEL_PATH=/root/voice_worker/models/kokoro-v1.0.onnx
+KOKORO_VOICES_PATH=/root/voice_worker/models/voices-v1.0.bin
 EOF
 
 echo -e "${GREEN}✓ Environment configured. Set your GPU_API_KEY in .env file.${NC}"
 
 # 4. Install Python AI Libraries & llama.cpp Server
-echo -e "${GREEN}[4/6] Installing PyTorch, vLLM, Faster-Whisper, Kokoro, Silero, Gradio, & llama.cpp...${NC}"
+echo -e "${GREEN}[4/6] Installing PyTorch, vLLM, NeMo, Kokoro, Silero, & Gradio...${NC}"
 python3 -m pip install --upgrade pip setuptools wheel
+python3 -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cuda-runtime-cu12 nvidia-cuda-nvrtc-cu12
 python3 -m pip install -r requirements.txt
-python3 -m pip install llama-cpp-python[server] --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 || true
 
-# Register NVIDIA python libs directly in /usr/local/lib and system linker (fixes libcublas.so.12)
-find /usr/local/lib/ -name "libcublas*.so*" -exec ln -sf {} /usr/local/lib/ \; 2>/dev/null || true
-find /usr/local/lib/ -name "libcudnn*.so*" -exec ln -sf {} /usr/local/lib/ \; 2>/dev/null || true
-find /usr/local/lib/ -name "libcudart*.so*" -exec ln -sf {} /usr/local/lib/ \; 2>/dev/null || true
+# Register all NVIDIA python libraries directly into system linker
+find /usr/local/lib/python3.*/dist-packages/nvidia/ -name "*.so*" -exec ln -sf {} /usr/local/lib/ \; 2>/dev/null || true
 echo "/usr/local/lib" > /etc/ld.so.conf.d/00-local.conf
 ldconfig 2>/dev/null || true
 

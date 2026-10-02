@@ -14,14 +14,14 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
 
 # Master Configuration
 HOST = os.environ.get("GPU_HOST", "77.104.167.149")
-API_KEY = os.environ.get("GPU_API_KEY", "")
+API_KEY = os.environ.get("GPU_API_KEY", "IbraSoft-GPUZvrMmfSn3ePVE9spRQ2hi751fGSXq5sFpovfUl7XOggbMRRHee8zRk4SWV7YBSUF")
 
 PORTS = {
-    "LLM": 59656,
-    "TTS": 59730,
-    "STT": 59901,
-    "VAD": 59838,
-    "UI":  59726
+    "LLM": 59982,
+    "TTS": 59643,
+    "STT": 59805,
+    "VAD": 59929,
+    "UI":  59835
 }
 
 GREEN = "\033[92m"

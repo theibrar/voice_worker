@@ -22,8 +22,31 @@ from fastapi.middleware.cors import CORSMiddleware
 from scipy.signal import butter, filtfilt
 from loguru import logger
 
+import ctypes
+
+# Preload NVIDIA CUDA / cuBLAS libraries into process table
+nvidia_dirs = [
+    "/usr/local/lib/python3.10/dist-packages/nvidia/cublas/lib",
+    "/usr/local/lib/python3.10/dist-packages/nvidia/cudnn/lib",
+    "/usr/local/lib/python3.10/dist-packages/nvidia/cuda_runtime/lib",
+    "/usr/local/lib/python3.10/dist-packages/nvidia/cuda_nvrtc/lib",
+    "/usr/local/cuda/lib64"
+]
+for d in nvidia_dirs:
+    if os.path.exists(d):
+        if d not in os.environ.get("LD_LIBRARY_PATH", ""):
+            os.environ["LD_LIBRARY_PATH"] = f"{d}:{os.environ.get('LD_LIBRARY_PATH', '')}"
+        for lib_name in ["libcublasLt.so.12", "libcublas.so.12", "libcudnn.so.9", "libcudart.so.12"]:
+            lib_path = os.path.join(d, lib_name)
+            if os.path.exists(lib_path):
+                try:
+                    ctypes.CDLL(lib_path, mode=ctypes.RTLD_GLOBAL)
+                except Exception:
+                    pass
+
 API_KEY = os.getenv("GPU_API_KEY", "")
-PARAKEET_MODEL_NAME = os.getenv("PARAKEET_MODEL", "nvidia/parakeet-tdt-1.1b") # or nvidia/parakeet-tdt-0.6b-v3
+DEFAULT_MODEL = "nvidia/parakeet-tdt-0.6b-v3" # 1.2 GB VRAM: fast, robust, fits any GPU
+PARAKEET_MODEL_NAME = os.getenv("PARAKEET_MODEL", DEFAULT_MODEL)
 FORCE_STT_CPU = os.getenv("FORCE_STT_CPU", "0") == "1"
 
 app = FastAPI(title="NVIDIA Parakeet-TDT Streaming STT Engine", version="3.0.0")
@@ -47,86 +70,97 @@ def get_stt_model():
 
     import torch
     
-    # 1. Determine optimal device with dynamic VRAM guard
+    # 1. Determine optimal device and model size dynamically
     device = "cpu"
+    chosen_model = PARAKEET_MODEL_NAME
+
     if not FORCE_STT_CPU and torch.cuda.is_available():
+        device = "cuda"
         try:
             free_bytes, total_bytes = torch.cuda.mem_get_info()
             free_gb = free_bytes / (1024 ** 3)
-            logger.info(f"Available GPU VRAM for STT: {free_gb:.2f} GB (Total: {total_bytes / (1024**3):.1f} GB)")
-            # If free VRAM is under 1.2 GB, use CPU to ensure vLLM and Kokoro have full room
-            if free_gb < 1.2:
-                logger.warning(f"Free VRAM is tight ({free_gb:.2f} GB < 1.2 GB). Allocating Parakeet-TDT to CPU for 0-risk stability.")
-                device = "cpu"
-            else:
-                device = "cuda"
+            logger.info(f"⚡ GPU Detected: {torch.cuda.get_device_name(0)} | Free VRAM: {free_gb:.2f} GB / {total_bytes / (1024**3):.1f} GB")
+            
+            # If free VRAM is tight (< 4.0 GB) and user requested 1.1b, use 0.6b to guarantee 0-crash GPU loading
+            if free_gb < 4.0 and "1.1b" in chosen_model:
+                logger.info(f"Available VRAM is {free_gb:.2f} GB. Auto-selecting lightweight 'nvidia/parakeet-tdt-0.6b-v3' (uses ~1.2 GB VRAM).")
+                chosen_model = "nvidia/parakeet-tdt-0.6b-v3"
         except Exception as e:
-            logger.warning(f"VRAM check notice: {e}. Defaulting to CPU.")
-            device = "cpu"
+            logger.warning(f"VRAM check notice: {e}. Defaulting to CUDA.")
+            device = "cuda"
 
-    logger.info(f"Initializing NVIDIA Parakeet-TDT ({PARAKEET_MODEL_NAME}) on {device.upper()}...")
+    logger.info(f"Initializing NVIDIA Parakeet-TDT ({chosen_model}) on {device.upper()}...")
 
     # 2. Try loading via NVIDIA NeMo ASR
+    if device == "cuda":
+        # Candidate models to try on CUDA (specified model first, then 0.6b fallback)
+        cuda_candidates = [chosen_model]
+        if chosen_model != "nvidia/parakeet-tdt-0.6b-v3":
+            cuda_candidates.append("nvidia/parakeet-tdt-0.6b-v3")
+
+        for cand in cuda_candidates:
+            try:
+                import nemo.collections.asr as nemo_asr
+                logger.info(f"Loading {cand} onto CUDA...")
+                torch.cuda.empty_cache()
+                
+                # Attempt 1: Direct CUDA load
+                try:
+                    model = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(
+                        model_name=cand,
+                        map_location="cuda"
+                    )
+                except Exception as direct_err:
+                    logger.info(f"Direct CUDA load notice ({direct_err}). Unpacking on CPU then moving to CUDA...")
+                    torch.cuda.empty_cache()
+                    model = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(
+                        model_name=cand,
+                        map_location="cpu"
+                    )
+                    model = model.to(device="cuda")
+
+                model = model.eval()
+                parakeet_model = model
+                active_device = "cuda"
+                logger.success(f"✓ NVIDIA Parakeet-TDT ({cand}) is LIVE on GPU (CUDA)!")
+                return parakeet_model
+            except Exception as cuda_err:
+                logger.warning(f"CUDA load attempt for {cand} failed: {cuda_err}")
+                torch.cuda.empty_cache()
+
+    # 3. Fallback to Transformers pipeline on CUDA if NeMo failed
+    if device == "cuda":
+        try:
+            from transformers import pipeline
+            logger.info("Attempting HuggingFace Transformers pipeline on CUDA...")
+            pipe = pipeline(
+                "automatic-speech-recognition",
+                model=chosen_model,
+                device=0,
+                torch_dtype=torch.float16
+            )
+            parakeet_model = pipe
+            active_device = "cuda"
+            logger.success(f"✓ Parakeet-TDT successfully loaded via Transformers on CUDA GPU!")
+            return parakeet_model
+        except Exception as hf_err:
+            logger.warning(f"Transformers CUDA load notice: {hf_err}")
+
+    # 4. Safe CPU Fallback only if no GPU was available
     try:
         import nemo.collections.asr as nemo_asr
-        
-        # Load weights into host RAM (CPU) first to avoid 7.8GB peak allocation spike on GPU
-        logger.info(f"Unpacking {PARAKEET_MODEL_NAME} in system RAM first...")
+        logger.info(f"Initializing Parakeet-TDT on CPU...")
         model = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(
-            model_name=PARAKEET_MODEL_NAME,
+            model_name=chosen_model,
             map_location="cpu"
         )
-        
-        if device == "cuda":
-            logger.info("Casting Parakeet-TDT to FP16 and offloading to GPU VRAM (~2.2 GB)...")
-            torch.cuda.empty_cache()
-            model = model.half().cuda().eval()
-            active_device = "cuda"
-            logger.success("✓ NVIDIA Parakeet-TDT Engine successfully running on GPU (CUDA FP16)!")
-        else:
-            model = model.cpu().eval()
-            active_device = "cpu"
-            logger.success("✓ NVIDIA Parakeet-TDT Engine initialized on CPU.")
-
+        model = model.eval()
         parakeet_model = model
+        active_device = "cpu"
+        logger.success("✓ NVIDIA Parakeet-TDT Engine initialized on CPU.")
         return parakeet_model
-
-    except Exception as nemo_err:
-        logger.warning(f"NeMo GPU load notice: {nemo_err}")
-        
-        # Fallback to CPU NeMo if CUDA still has memory constraints
-        if device == "cuda":
-            try:
-                logger.info("Falling back to CPU allocation for Parakeet-TDT...")
-                import nemo.collections.asr as nemo_asr
-                model = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(
-                    model_name=PARAKEET_MODEL_NAME,
-                    map_location="cpu"
-                )
-                model = model.cpu().eval()
-                parakeet_model = model
-                active_device = "cpu"
-                logger.success("✓ NVIDIA Parakeet-TDT Engine initialized on CPU (Safe Fallback).")
-                return parakeet_model
-            except Exception as cpu_err:
-                logger.error(f"CPU NeMo load failed: {cpu_err}")
-
-    # 3. Fallback to Transformers pipeline or LiteRT if NeMo is unavailable
-    try:
-        from transformers import pipeline
-        logger.info(f"Loading Parakeet-TDT via HuggingFace Transformers pipeline...")
-        pipe = pipeline(
-            "automatic-speech-recognition",
-            model=PARAKEET_MODEL_NAME,
-            device=0 if (device == "cuda" and torch.cuda.is_available()) else -1,
-            torch_dtype=torch.float16 if device == "cuda" else torch.float32
-        )
-        parakeet_model = pipe
-        active_device = device
-        logger.success(f"Parakeet-TDT loaded via Transformers on {active_device.upper()}.")
-        return parakeet_model
-    except Exception as hf_err:
-        logger.error(f"Transformers pipeline load failed: {hf_err}")
+    except Exception as cpu_err:
+        logger.error(f"CPU load failed: {cpu_err}")
 
     return None
 
