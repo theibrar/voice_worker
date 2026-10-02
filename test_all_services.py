@@ -13,15 +13,15 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
         pass
 
 # Master Configuration
-HOST = "77.54.200.11"
+HOST = os.environ.get("GPU_HOST", "77.104.167.149")
 API_KEY = os.environ.get("GPU_API_KEY", "")
 
 PORTS = {
-    "LLM": 15460,
-    "TTS": 15188,
-    "STT": 15490,
-    "VAD": 15089,
-    "UI":  15238
+    "LLM": 59656,
+    "TTS": 59730,
+    "STT": 59901,
+    "VAD": 59838,
+    "UI":  59726
 }
 
 GREEN = "\033[92m"

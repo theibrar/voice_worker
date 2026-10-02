@@ -21,7 +21,7 @@ TTS_URL = "http://127.0.0.1:8088"
 STT_URL = "http://127.0.0.1:8030"
 VLLM_URL = "http://127.0.0.1:8000/v1"
 VAD_URL = "http://127.0.0.1:8090"
-PUBLIC_IP = os.getenv("PUBLIC_IP", "77.54.200.11")
+PUBLIC_IP = os.getenv("PUBLIC_IP", "77.104.167.149")
 
 def get_gpu_telemetry():
     try:

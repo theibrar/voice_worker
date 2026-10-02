@@ -20,12 +20,12 @@ from loguru import logger
 API_KEY = os.getenv("GPU_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct-AWQ")
 GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", "0.40")
-PUBLIC_IP = os.getenv("PUBLIC_IP", "77.54.200.11")
-PORT_VLLM = os.getenv("PORT_VLLM", "15460")
-PORT_TTS = os.getenv("PORT_TTS", "15188")
-PORT_STT = os.getenv("PORT_STT", "15490")
-PORT_VAD = os.getenv("PORT_VAD", "15089")
-PORT_UI = os.getenv("PORT_UI", "15238")
+PUBLIC_IP = os.getenv("PUBLIC_IP", "77.104.167.149")
+PORT_VLLM = os.getenv("PORT_VLLM", "59656")
+PORT_TTS = os.getenv("PORT_TTS", "59730")
+PORT_STT = os.getenv("PORT_STT", "59901")
+PORT_VAD = os.getenv("PORT_VAD", "59838")
+PORT_UI = os.getenv("PORT_UI", "59726")
 
 processes = []
 
@@ -45,7 +45,7 @@ def start_services():
     logger.info("==================================================================")
     logger.info("   🎙️  ENTERPRISE GPU VOICE AI STACK - MASTER ORCHESTRATOR         ")
     logger.info("   Hardware: 1x NVIDIA RTX 5060 Ti (16GB VRAM)                    ")
-    logger.info("   CPU: Intel Xeon E5-2673 v4 (40 vCPUs, 96.5GB RAM)              ")
+    logger.info("   CPU: AMD EPYC 7K62 48-Core Processor (129GB RAM)                ")
     logger.info(f"   Public IP: {PUBLIC_IP}                                          ")
     logger.info("==================================================================")
 

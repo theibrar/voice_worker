@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Enterprise Voice AI GPU Node - Automated One-Click Installer
-# Hardware Target: 1x NVIDIA RTX 5060 Ti (16GB VRAM) | Intel Xeon E5-2673 v4
-# Public IP: 77.54.200.11
+# Hardware Target: 1x NVIDIA RTX 5060 Ti (16GB VRAM) | AMD EPYC 7K62 48-Core Processor
+# Public IP: 77.104.167.149
 # Stack: Parakeet TDT 0.6B INT8 -> Qwen 4B/7B -> Kokoro-82M (+ Silero VAD v5)
 # ==============================================================================
 
@@ -20,8 +20,8 @@ echo -e "${CYAN}"
 echo "=============================================================================="
 echo "    🎙️  ENTERPRISE GPU VOICE AI WORKER - AUTOMATED INSTALLER                  "
 echo "    Target GPU : 1x NVIDIA RTX 5060 Ti (16GB VRAM)                            "
-echo "    CPU        : Intel Xeon E5-2673 v4 (40 vCPUs, 96.5GB RAM)                 "
-echo "    Public IP  : 77.54.200.11                                              "
+echo "    CPU        : AMD EPYC 7K62 48-Core Processor (129GB RAM)                  "
+echo "    Public IP  : 77.104.167.149                                              "
 echo "    Pipeline   : Parakeet TDT 0.6B -> Qwen3-4B / Qwen2.5 -> Kokoro-82M        "
 echo "=============================================================================="
 echo -e "${NC}"
@@ -61,7 +61,7 @@ apt-get install -y --no-install-recommends \
 # 3. Configure Environment & API Key
 echo -e "${GREEN}[3/6] Setting Up Secure Environment...${NC}"
 DEFAULT_KEY=""
-PUBLIC_IP="77.54.200.11"
+PUBLIC_IP="77.104.167.149"
 
 cat <<EOF > .env
 # ============================================================
@@ -75,11 +75,11 @@ LLM_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ
 GPU_MEM_UTIL=0.40
 MAX_MODEL_LEN=2048
 STT_MODEL_SIZE=distil-large-v3
-PORT_VLLM=15460
-PORT_TTS=15188
-PORT_STT=15490
-PORT_VAD=15089
-PORT_UI=15238
+PORT_VLLM=59656
+PORT_TTS=59730
+PORT_STT=59901
+PORT_VAD=59838
+PORT_UI=59726
 CUDA_MODULE_LOADING=LAZY
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 VLLM_USE_V1=0
@@ -164,7 +164,7 @@ echo -e "${GREEN}✓ All model assets downloaded and cached in ./models/${NC}"
 cat <<EOF > ENDPOINTS.txt
 ==============================================================================
    APEX ENTERPRISE GPU VOICE AI CLUSTER - PRODUCTION ENDPOINTS
-   Hardware: 1x NVIDIA RTX 5060 Ti (16GB VRAM) | Intel Xeon E5-2673 v4
+   Hardware: 1x NVIDIA RTX 5060 Ti (16GB VRAM) | AMD EPYC 7K62 48-Core Processor
 ==============================================================================
 
 Public IP: ${PUBLIC_IP}
@@ -209,6 +209,6 @@ echo "==========================================================================
 echo " 🎉 ALL GPU SERVICES ARE RUNNING IN THE BACKGROUND!"
 echo "    Inspect live logs anytime with: tmux attach -t voice-worker"
 echo "    Or test your mic in your browser at:"
-echo "    👉 http://${PUBLIC_IP}:15238"
+echo "    👉 http://${PUBLIC_IP}:${PORT_UI}"
 echo "=============================================================================="
 echo -e "${NC}"
