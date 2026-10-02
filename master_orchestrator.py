@@ -46,11 +46,11 @@ except Exception:
 
 # Dynamically calculate safe vLLM memory utilization based on card size
 if total_vram_gb >= 22.0:
-    auto_vllm_util = 0.55   # 24GB+ (RTX 3090, 4090, A5000): ample room
+    auto_vllm_util = 0.65   # 24GB+ (RTX 3090, 4090, A5000)
 elif total_vram_gb >= 15.0:
-    auto_vllm_util = 0.38   # 16GB (RTX 5060 Ti, RTX 4080): ~6.0 GB for vLLM, leaves ~10 GB for STT/TTS
+    auto_vllm_util = 0.52   # 16GB (RTX 5060 Ti, RTX 4080): ~8.2 GB for vLLM, leaves ~7.7 GB for STT/TTS
 else:
-    auto_vllm_util = 0.30   # 12GB (RTX 3060, 4070): ~3.6 GB for vLLM
+    auto_vllm_util = 0.58   # 12GB (RTX 3060, 4070)
 
 GPU_MEM_UTIL = os.getenv("GPU_MEM_UTIL", str(auto_vllm_util))
 
